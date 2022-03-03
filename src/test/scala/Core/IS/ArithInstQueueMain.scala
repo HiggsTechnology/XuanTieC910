@@ -1,4 +1,4 @@
-package Core.RS
+package Core.IS
 
 import chisel3.stage.{ChiselGeneratorAnnotation, ChiselStage}
 

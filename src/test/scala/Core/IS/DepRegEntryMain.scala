@@ -1,4 +1,4 @@
-package Core.RS
+package Core.IS
 
 import Core.RTU.PregEntry
 import Core.RTU.PregEntryMain.args
