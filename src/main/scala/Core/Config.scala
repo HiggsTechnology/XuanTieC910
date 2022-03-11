@@ -60,9 +60,23 @@ trait VectorUnitConfig {
   def VsewBits = 3
 }
 
+trait FuTypeConfig {
+  def ALU      = "b0000000001"
+  def BJU      = "b0000000010"
+  def MULT     = "b0000000100"
+  def DIV      = "b0000001000"
+  def LSU_P5   = "b0000110000"
+  def LSU      = "b0000010000"
+  def PIPE67   = "b0001000000"
+  def PIPE6    = "b0010000000"
+  def PIPE7    = "b0100000000"
+  def SPECIAL  = "b1000000000"
+}
+
 object IntConfig extends IntConfig
 object ROBConfig extends ROBConfig
 object PipelineConfig extends PipelineConfig
 object AddrConfig extends AddrConfig
 object ExceptionConfig extends ExceptionConfig
 object VectorUnitConfig extends VectorUnitConfig
+object FuTypeConfig extends FuTypeConfig
