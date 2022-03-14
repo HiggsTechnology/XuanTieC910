@@ -135,3 +135,13 @@ class IR_preDispatch extends Bundle{
 }
 
 
+//ISStage
+class IQCntInfo extends Bundle {
+  val left_1_updt = Bool()
+  val empty = Bool()
+  val full = Bool()
+  val full_updt = Bool()
+  val full_updt_clk_en = Bool()
+}
+
+

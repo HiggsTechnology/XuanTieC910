@@ -1341,7 +1341,7 @@ class IRStage extends Module {
   val ir_inst_fold = Wire(Vec(4, Bool()))
   val pre_dis_inst_fold = Wire(Vec(4, Bool()))
   for(i <- 0 until 4){
-    ir_inst_fold(i) := (inst_aiq0(i) || inst_aiq1(i) || inst_aiq01(i)) && !inst_special(i)
+    ir_inst_fold(i) := (inst_aiq0(i) || inst_aiq1(i) || inst_aiq01(i)) && !inst_special(i) || (inst_viq0(i) || inst_viq1(i) || inst_viq01(i))
     pre_dis_inst_fold(i) := pre_dis_inst_vld(i) && ir_inst_fold(i) &&
       !inst_split(i) && !inst_intmask(i) && !io.in.fromRTU.srt_en && !io.in.fromCp0.robFoldDisable
   }
