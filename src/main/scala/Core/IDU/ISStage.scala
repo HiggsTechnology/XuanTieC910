@@ -249,6 +249,7 @@ class ISStageOutput extends Bundle{
       val rel_preg = UInt(7.W)
       val rel_vreg = UInt(6.W)
       val vreg     = UInt(6.W)
+      val vreg_iid = UInt(7.W)
     })
     val rob_create = Vec(4, new Bundle{
       val dp_en = Bool()
@@ -278,6 +279,9 @@ class ISStage extends Module{
 
   val inst_create_data = WireInit(VecInit(Seq.fill(4)(0.U.asTypeOf(new ISData))))
   val inst_read_data = WireInit(VecInit(Seq.fill(4)(0.U.asTypeOf(new ISData))))
+
+  val sdiq_vmb_create_dp_en = Wire(Vec(2, Bool()))
+  val sdiq_vmb_create_entry = Wire(Vec(2, UInt(12.W)))
   //==========================================================
   //                 Instance of Gated Cell
   //==========================================================
@@ -741,7 +745,96 @@ class ISStage extends Module{
   //==========================================================
   //                Control signal for PST
   //==========================================================
+  val dis_inst_preg_vld = Wire(Vec(4, Bool()))
+  val dis_inst_vreg_vld = Wire(Vec(4, Bool()))
+  val dis_inst_freg_vld = Wire(Vec(4, Bool()))
+  val dis_inst_ereg_vld = Wire(Vec(4, Bool()))
 
+  for(i <- 0 until 4){
+    dis_inst_preg_vld(i) := dis_info.inst_vld(i) && !is_dis_stall && inst_read_data(i).dst_vld
+    dis_inst_vreg_vld(i) := dis_info.inst_vld(i) && !is_dis_stall && inst_read_data(i).dstv_vld && inst_read_data(i).dst_vreg(6)
+    dis_inst_freg_vld(i) := dis_info.inst_vld(i) && !is_dis_stall && inst_read_data(i).dstv_vld && !inst_read_data(i).dst_vreg(6)
+    dis_inst_ereg_vld(i) := dis_info.inst_vld(i) && !is_dis_stall && inst_read_data(i).dste_vld
+  }
+
+  for(i <- 0 until 4){
+    io.out.toRTU.pst_dis(i).preg_vld := dis_inst_preg_vld(i)
+    io.out.toRTU.pst_dis(i).vreg_vld := dis_inst_vreg_vld(i)
+    io.out.toRTU.pst_dis(i).freg_vld := dis_inst_freg_vld(i)
+    io.out.toRTU.pst_dis(i).ereg_vld := dis_inst_ereg_vld(i)
+  }
+
+  //==========================================================
+  //                 Create Data for PST
+  //==========================================================
+  //----------------------------------------------------------
+  //                     Output for RTU
+  //----------------------------------------------------------
+  //implicit dest should create iid+1, which is iid of split consumer
+  val dis_inst_iid = Wire(Vec(4, UInt(7.W)))
+  for(i <- 0 until 4){
+    dis_inst_iid(i) := inst_iid(i) + Cat(0.U(3.W), inst_read_data(i).IID_PLUS)
+  }
+
+  //power optimization: operand mux for pst_create_iid
+  //if inst expt, it should write ereg, split inst should always its iid without plus
+  //no problem because split consumer never read ereg
+  for(i <- 0 until 4){
+    io.out.toRTU.pst_dis(i).preg_iid := Mux(dis_inst_preg_vld(i), dis_inst_iid(i), 0.U)
+    io.out.toRTU.pst_dis(i).vreg_iid := Mux(dis_inst_vreg_vld(i) || dis_inst_freg_vld(i), dis_inst_iid(i), 0.U)
+    io.out.toRTU.pst_dis(i).ereg_iid := Mux(dis_inst_ereg_vld(i), inst_iid(i), 0.U)
+  }
+
+  for(i <- 0 until 4){
+    io.out.toRTU.pst_dis(i).dst_reg  := inst_read_data(i).dst_reg
+    io.out.toRTU.pst_dis(i).preg     := inst_read_data(i).dst_preg
+    io.out.toRTU.pst_dis(i).rel_preg := inst_read_data(i).dst_rel_preg
+    io.out.toRTU.pst_dis(i).dstv_reg := inst_read_data(i).dstv_reg
+    io.out.toRTU.pst_dis(i).vreg     := inst_read_data(i).dst_vreg
+    io.out.toRTU.pst_dis(i).rel_vreg := inst_read_data(i).dst_rel_vreg
+    io.out.toRTU.pst_dis(i).ereg     := inst_read_data(i).dst_ereg
+    io.out.toRTU.pst_dis(i).rel_ereg := inst_read_data(i).dst_rel_ereg
+  }
+
+  //==========================================================
+  //          Control Signal for LSU VMB Create
+  //==========================================================
+  for(i <- 0 until 2){
+    io.out.toLSU.vmb_create(i).en         := dis_info.iq_create_sel(7)(i).valid && !is_dis_stall
+    io.out.toLSU.vmb_create(i).dp_en      := dis_info.iq_create_sel(7)(i).valid && !io.in.iq_cnt_info(7).full
+    io.out.toLSU.vmb_create(i).gateclk_en := dis_info.iq_create_sel(7)(i).valid
+  }
+
+  //==========================================================
+  //                 Create Data for LSU VMB
+  //==========================================================
+  for(i <- 0 until 2){
+    io.out.toLSU.vmb_create(i).dst_ready   := false.B
+    io.out.toLSU.vmb_create(i).sdiq_entry  := 0.U
+    io.out.toLSU.vmb_create(i).split_num   := 0.U
+    io.out.toLSU.vmb_create(i).unit_stride := false.B
+    io.out.toLSU.vmb_create(i).vamo        := false.B
+    io.out.toLSU.vmb_create(i).vl          := 0.U
+    io.out.toLSU.vmb_create(i).vreg        := 0.U
+    io.out.toLSU.vmb_create(i).vsew        := 0.U
+
+    for(j <- 0 until 4){
+      when(dis_info.iq_create_sel(7)(i).bits === j.U){
+        io.out.toLSU.vmb_create(i).dst_ready   := sdiq_vmb_create_dp_en(i)
+        io.out.toLSU.vmb_create(i).sdiq_entry  := sdiq_vmb_create_entry(i)
+        io.out.toLSU.vmb_create(i).split_num   := inst_read_data(j).SPLIT_NUM
+        io.out.toLSU.vmb_create(i).unit_stride := inst_read_data(j).UNIT_STRIDE
+        io.out.toLSU.vmb_create(i).vamo        := inst_read_data(j).VAMO
+        io.out.toLSU.vmb_create(i).vl          := inst_read_data(j).VL
+        io.out.toLSU.vmb_create(i).vreg        := inst_read_data(j).dst_vreg(5,0)
+        io.out.toLSU.vmb_create(i).vsew        := inst_read_data(j).VSEW
+      }
+    }
+  }
+
+  //==========================================================
+  //                 Assign PCFIFO ID (PID)
+  //==========================================================
 
 
 }
