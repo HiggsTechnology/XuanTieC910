@@ -160,7 +160,7 @@ class ISStageOutput extends Bundle{
   }
   val toAiq = new Bundle {
     val inst_src_preg = Vec(4, Vec(3, UInt(7.W)))
-    val sdiq_create0_src_sel = Vec(2, Bool())
+    val sdiq_create_src_sel = Vec(2, Bool())
   }
   val toBiq = new Bundle {
     val bypass_data = new BIQData
@@ -283,8 +283,8 @@ class ISStage extends Module{
   val inst_create_data = WireInit(VecInit(Seq.fill(4)(0.U.asTypeOf(new ISData))))
   val inst_read_data = WireInit(VecInit(Seq.fill(4)(0.U.asTypeOf(new ISData))))
 
-  val sdiq_vmb_create_dp_en = Wire(Vec(2, Bool()))
-  val sdiq_vmb_create_entry = Wire(Vec(2, UInt(12.W)))
+  val sdiq_vmb_create1_dp_en = Wire(Bool())
+  val sdiq_vmb_create1_entry = Wire(UInt(12.W))
   //==========================================================
   //                 Instance of Gated Cell
   //==========================================================
@@ -727,6 +727,10 @@ class ISStage extends Module{
   rob_create_data(3).PC_OFFSET  := dis_inst_pc_offset(3)
   rob_create_data(3).CMPLT_CNT  := 1.U
 
+  for(i <- 0 until 4){
+    io.out.toRTU.rob_create(i).data := rob_create_data(i)
+  }
+
   //----------------------------------------------------------
   //                       Assign IID
   //----------------------------------------------------------
@@ -812,8 +816,6 @@ class ISStage extends Module{
   //                 Create Data for LSU VMB
   //==========================================================
   for(i <- 0 until 2){
-    io.out.toLSU.vmb_create(i).dst_ready   := false.B
-    io.out.toLSU.vmb_create(i).sdiq_entry  := 0.U
     io.out.toLSU.vmb_create(i).split_num   := 0.U
     io.out.toLSU.vmb_create(i).unit_stride := false.B
     io.out.toLSU.vmb_create(i).vamo        := false.B
@@ -823,8 +825,6 @@ class ISStage extends Module{
 
     for(j <- 0 until 4){
       when(dis_info.iq_create_sel(7)(i).bits === j.U){
-        io.out.toLSU.vmb_create(i).dst_ready   := sdiq_vmb_create_dp_en(i)
-        io.out.toLSU.vmb_create(i).sdiq_entry  := sdiq_vmb_create_entry(i)
         io.out.toLSU.vmb_create(i).split_num   := inst_read_data(j).SPLIT_NUM
         io.out.toLSU.vmb_create(i).unit_stride := inst_read_data(j).UNIT_STRIDE
         io.out.toLSU.vmb_create(i).vamo        := inst_read_data(j).VAMO
@@ -834,6 +834,10 @@ class ISStage extends Module{
       }
     }
   }
+  io.out.toLSU.vmb_create(0).dst_ready   := !dis_info.iq_create_sel(4)(0).valid
+  io.out.toLSU.vmb_create(0).sdiq_entry  := io.in.iq_create_entry.sdiq_dp(0)
+  io.out.toLSU.vmb_create(1).dst_ready   := !sdiq_vmb_create1_dp_en
+  io.out.toLSU.vmb_create(1).sdiq_entry  := sdiq_vmb_create1_entry
 
   //==========================================================
   //                 Assign PCFIFO ID (PID)
@@ -1140,4 +1144,702 @@ class ISStage extends Module{
   //----------------------------------------------------------
   //                  Create Data for AIQ1
   //----------------------------------------------------------
+  val aiq1_create_data         = Wire(Vec(2, new ISData))
+  val aiq1_create_iid          = Wire(Vec(2, UInt(7.W)))
+  val aiq1_create_pid          = Wire(Vec(2, UInt(5.W)))
+  val aiq1_create_lch_rdy_aiq0 = Wire(Vec(2, Vec(8, UInt(3.W))))
+  val aiq1_create_lch_rdy_aiq1 = Wire(Vec(2, Vec(8, UInt(3.W))))
+  val aiq1_create_lch_rdy_biq  = Wire(Vec(2, Vec(12, UInt(2.W))))
+  val aiq1_create_lch_rdy_lsiq = Wire(Vec(2, Vec(12, UInt(2.W))))
+  val aiq1_create_lch_rdy_sdiq = Wire(Vec(2, Vec(12, Bool())))
+
+  for(i <- 0 until 2){
+    when(dis_info.iq_create_sel(1)(i).bits === 0.U){
+      aiq1_create_data(i) := inst_read_data(0)
+      aiq1_create_iid(i) := inst_iid(0)
+      aiq1_create_pid(i) := inst_pid(0)
+      aiq1_create_lch_rdy_aiq0(i) := inst_lch_rdy_aiq0(0)
+      aiq1_create_lch_rdy_aiq1(i) := inst_lch_rdy_aiq1(0)
+      aiq1_create_lch_rdy_biq(i)  := inst_lch_rdy_biq(0)
+      aiq1_create_lch_rdy_lsiq(i) := inst_lch_rdy_lsiq(0)
+      aiq1_create_lch_rdy_sdiq(i) := inst_lch_rdy_sdiq(0)
+    }.elsewhen(dis_info.iq_create_sel(1)(i).bits === 1.U){
+      aiq1_create_data(i) := inst_read_data(1)
+      aiq1_create_iid(i) := inst_iid(1)
+      aiq1_create_pid(i) := inst_pid(1)
+      aiq1_create_lch_rdy_aiq0(i) := inst_lch_rdy_aiq0(1)
+      aiq1_create_lch_rdy_aiq1(i) := inst_lch_rdy_aiq1(1)
+      aiq1_create_lch_rdy_biq(i)  := inst_lch_rdy_biq(1)
+      aiq1_create_lch_rdy_lsiq(i) := inst_lch_rdy_lsiq(1)
+      aiq1_create_lch_rdy_sdiq(i) := inst_lch_rdy_sdiq(1)
+    }.elsewhen(dis_info.iq_create_sel(1)(i).bits === 2.U){
+      aiq1_create_data(i) := inst_read_data(2)
+      aiq1_create_iid(i) := inst_iid(2)
+      aiq1_create_pid(i) := inst_pid(2)
+      aiq1_create_lch_rdy_aiq0(i) := inst_lch_rdy_aiq0(2)
+      aiq1_create_lch_rdy_aiq1(i) := inst_lch_rdy_aiq1(2)
+      aiq1_create_lch_rdy_biq(i)  := inst_lch_rdy_biq(2)
+      aiq1_create_lch_rdy_lsiq(i) := inst_lch_rdy_lsiq(2)
+      aiq1_create_lch_rdy_sdiq(i) := inst_lch_rdy_sdiq(2)
+    }.elsewhen(dis_info.iq_create_sel(1)(i).bits === 3.U){
+      aiq1_create_data(i) := inst_read_data(3)
+      aiq1_create_iid(i) := inst_iid(3)
+      aiq1_create_pid(i) := inst_pid(3)
+      aiq1_create_lch_rdy_aiq0(i) := inst_lch_rdy_aiq0(3)
+      aiq1_create_lch_rdy_aiq1(i) := inst_lch_rdy_aiq1(3)
+      aiq1_create_lch_rdy_biq(i)  := inst_lch_rdy_biq(3)
+      aiq1_create_lch_rdy_lsiq(i) := inst_lch_rdy_lsiq(3)
+      aiq1_create_lch_rdy_sdiq(i) := inst_lch_rdy_sdiq(3)
+    }.otherwise{
+      aiq1_create_data(i) := 0.U.asTypeOf(new ISData)
+      aiq1_create_iid(i) := 0.U
+      aiq1_create_pid(i) := 0.U
+      aiq1_create_lch_rdy_aiq0(i) := 0.U.asTypeOf(Vec(8, UInt(3.W)))
+      aiq1_create_lch_rdy_aiq1(i) := 0.U.asTypeOf(Vec(8, UInt(3.W)))
+      aiq1_create_lch_rdy_biq(i)  := 0.U.asTypeOf(Vec(12, UInt(2.W)))
+      aiq1_create_lch_rdy_lsiq(i) := 0.U.asTypeOf(Vec(12, UInt(2.W)))
+      aiq1_create_lch_rdy_sdiq(i) := 0.U.asTypeOf(Vec(12, Bool()))
+    }
+  }
+
+  //----------------------------------------------------------
+  //                Reorganize for AIQ1 create
+  //----------------------------------------------------------
+  for(i <- 0 until 2){
+    io.out.toAiq1.create_data(i).VL           := aiq1_create_data(i).VL
+    io.out.toAiq1.create_data(i).LCH_PREG     := aiq1_create_data(i).LCH_PREG
+    io.out.toAiq1.create_data(i).VSEW         := aiq1_create_data(i).VSEW
+    io.out.toAiq1.create_data(i).VLMUL        := aiq1_create_data(i).VLMUL
+    io.out.toAiq1.create_data(i).LCH_RDY_SDIQ := aiq1_create_lch_rdy_sdiq(i)
+    io.out.toAiq1.create_data(i).LCH_RDY_LSIQ := aiq1_create_lch_rdy_lsiq(i)
+    io.out.toAiq1.create_data(i).LCH_RDY_BIQ  := aiq1_create_lch_rdy_biq(i)
+    io.out.toAiq1.create_data(i).LCH_RDY_AIQ1 := aiq1_create_lch_rdy_aiq1(i)
+    io.out.toAiq1.create_data(i).LCH_RDY_AIQ0 := aiq1_create_lch_rdy_aiq0(i)
+    io.out.toAiq1.create_data(i).ALU_SHORT    := aiq1_create_data(i).ALU_SHORT
+    io.out.toAiq1.create_data(i).MLA          := aiq1_create_data(i).MLA
+    io.out.toAiq1.create_data(i).MTVR         := aiq1_create_data(i).MTVR
+
+    io.out.toAiq1.create_data(i).SRC2_LSU_MATCH        := aiq1_create_data(i).src2_lsu_match
+    io.out.toAiq1.create_data(i).SRC2_DATA             := aiq1_create_data(i).src2_data
+    io.out.toAiq1.create_data(i).src_info(1).lsu_match := aiq1_create_data(i).src1_lsu_match
+    io.out.toAiq1.create_data(i).src_info(1).src_data  := aiq1_create_data(i).src1_data
+    io.out.toAiq1.create_data(i).src_info(0).lsu_match := aiq1_create_data(i).src0_lsu_match
+    io.out.toAiq1.create_data(i).src_info(0).src_data  := aiq1_create_data(i).src0_data
+
+    io.out.toAiq1.create_data(i).DST_VREG := aiq1_create_data(i).dst_vreg
+    io.out.toAiq1.create_data(i).DST_PREG := aiq1_create_data(i).dst_preg
+    io.out.toAiq1.create_data(i).DSTV_VLD := aiq1_create_data(i).dstv_vld
+    io.out.toAiq1.create_data(i).DST_VLD  := aiq1_create_data(i).dst_vld
+    io.out.toAiq1.create_data(i).src_vld  := aiq1_create_data(i).src_vld
+    io.out.toAiq1.create_data(i).IID      := aiq1_create_iid(i)
+    io.out.toAiq1.create_data(i).OPCODE   := aiq1_create_data(i).opcode
+  }
+
+  io.out.toAiq1.bypass_data.VL           := aiq1_create_data(0).VL
+  io.out.toAiq1.bypass_data.LCH_PREG     := aiq1_create_data(0).LCH_PREG
+  io.out.toAiq1.bypass_data.VSEW         := aiq1_create_data(0).VSEW
+  io.out.toAiq1.bypass_data.VLMUL        := aiq1_create_data(0).VLMUL
+  io.out.toAiq1.bypass_data.LCH_RDY_SDIQ := aiq1_create_lch_rdy_sdiq(0)
+  io.out.toAiq1.bypass_data.LCH_RDY_LSIQ := aiq1_create_lch_rdy_lsiq(0)
+  io.out.toAiq1.bypass_data.LCH_RDY_BIQ  := aiq1_create_lch_rdy_biq(0)
+  io.out.toAiq1.bypass_data.LCH_RDY_AIQ1 := aiq1_create_lch_rdy_aiq1(0)
+  io.out.toAiq1.bypass_data.LCH_RDY_AIQ0 := aiq1_create_lch_rdy_aiq0(0)
+  io.out.toAiq1.bypass_data.ALU_SHORT    := aiq1_create_data(0).ALU_SHORT
+  io.out.toAiq1.bypass_data.MLA          := aiq1_create_data(0).MLA
+  io.out.toAiq1.bypass_data.MTVR         := aiq1_create_data(0).MTVR
+
+  io.out.toAiq1.bypass_data.SRC2_LSU_MATCH            := 0.U
+  io.out.toAiq1.bypass_data.SRC2_DATA.rdy             := 0.U
+  io.out.toAiq1.bypass_data.SRC2_DATA.preg            := aiq1_create_data(0).src2_data.preg
+  io.out.toAiq1.bypass_data.SRC2_DATA.wb              := aiq1_create_data(0).src2_data.wb
+  io.out.toAiq1.bypass_data.SRC2_DATA.mla_rdy         := 0.U
+  io.out.toAiq1.bypass_data.src_info(1).lsu_match     := 0.U
+  io.out.toAiq1.bypass_data.src_info(1).src_data.preg := aiq1_create_data(0).src1_data.preg
+  io.out.toAiq1.bypass_data.src_info(1).src_data.wb   := aiq1_create_data(0).src1_data.wb
+  io.out.toAiq1.bypass_data.src_info(1).src_data.rdy  := 0.U
+  io.out.toAiq1.bypass_data.src_info(0).lsu_match     := 0.U
+  io.out.toAiq1.bypass_data.src_info(0).src_data.preg := aiq1_create_data(0).src0_data.preg
+  io.out.toAiq1.bypass_data.src_info(0).src_data.wb   := aiq1_create_data(0).src0_data.wb
+  io.out.toAiq1.bypass_data.src_info(0).src_data.rdy  := 0.U
+
+  io.out.toAiq1.bypass_data.DST_VREG := aiq1_create_data(0).dst_vreg
+  io.out.toAiq1.bypass_data.DST_PREG := aiq1_create_data(0).dst_preg
+  io.out.toAiq1.bypass_data.DSTV_VLD := aiq1_create_data(0).dstv_vld
+  io.out.toAiq1.bypass_data.DST_VLD  := aiq1_create_data(0).dst_vld
+  io.out.toAiq1.bypass_data.src_vld  := aiq1_create_data(0).src_vld
+  io.out.toAiq1.bypass_data.IID      := aiq1_create_iid(0)
+  io.out.toAiq1.bypass_data.OPCODE   := aiq1_create_data(0).opcode
+
+  io.out.toAiq1.src_rdy_for_bypass(0) := aiq1_create_data(0).src0_bp_rdy(1)
+  io.out.toAiq1.src_rdy_for_bypass(1) := aiq1_create_data(0).src1_bp_rdy(1)
+  io.out.toAiq1.src_rdy_for_bypass(2) := aiq1_create_data(0).src2_bp_rdy(1)
+  io.out.toAiq1.create_alu := aiq1_create_data(0).ALU
+
+  //----------------------------------------------------------
+  //                  Create Data for BIQ
+  //----------------------------------------------------------
+  val biq_create_data = Wire(Vec(2, new ISData))
+  val biq_create_iid  = Wire(Vec(2, UInt(7.W)))
+  val biq_create_pid  = Wire(Vec(2, UInt(5.W)))
+
+  for(i <- 0 until 2){
+    when(dis_info.iq_create_sel(2)(i).bits === 0.U){
+      biq_create_data(i) := inst_read_data(0)
+      biq_create_iid(i) := inst_iid(0)
+      biq_create_pid(i) := inst_pid(0)
+    }.elsewhen(dis_info.iq_create_sel(2)(i).bits === 1.U){
+      biq_create_data(i) := inst_read_data(1)
+      biq_create_iid(i) := inst_iid(1)
+      biq_create_pid(i) := inst_pid(1)
+    }.elsewhen(dis_info.iq_create_sel(2)(i).bits === 2.U){
+      biq_create_data(i) := inst_read_data(2)
+      biq_create_iid(i) := inst_iid(2)
+      biq_create_pid(i) := inst_pid(2)
+    }.elsewhen(dis_info.iq_create_sel(2)(i).bits === 3.U){
+      biq_create_data(i) := inst_read_data(3)
+      biq_create_iid(i) := inst_iid(3)
+      biq_create_pid(i) := inst_pid(3)
+    }.otherwise{
+      biq_create_data(i) := 0.U.asTypeOf(new ISData)
+      biq_create_iid(i) := 0.U
+      biq_create_pid(i) := 0.U
+    }
+  }
+
+  //----------------------------------------------------------
+  //                Reorganize for BIQ create
+  //----------------------------------------------------------
+  for(i <- 0 until 2){
+    io.out.toBiq.create_data(i).VL     := biq_create_data(i).VL
+    io.out.toBiq.create_data(i).VSEW   := biq_create_data(i).VSEW
+    io.out.toBiq.create_data(i).VLMUL  := biq_create_data(i).VLMUL
+    io.out.toBiq.create_data(i).PCALL  := biq_create_data(i).PCALL
+    io.out.toBiq.create_data(i).RTS    := biq_create_data(i).RTS
+    io.out.toBiq.create_data(i).PID    := biq_create_pid(i)
+    io.out.toBiq.create_data(i).LENGTH := biq_create_data(i).LENGTH
+
+    io.out.toBiq.create_data(i).src_info(1).lsu_match := biq_create_data(i).src1_lsu_match
+    io.out.toBiq.create_data(i).src_info(1).src_data  := biq_create_data(i).src1_data
+    io.out.toBiq.create_data(i).src_info(0).lsu_match := biq_create_data(i).src0_lsu_match
+    io.out.toBiq.create_data(i).src_info(0).src_data  := biq_create_data(i).src0_data
+
+    io.out.toBiq.create_data(i).src_vld  := biq_create_data(i).src_vld
+    io.out.toBiq.create_data(i).IID      := biq_create_iid(i)
+    io.out.toBiq.create_data(i).OPCODE   := biq_create_data(i).opcode
+  }
+
+  io.out.toBiq.bypass_data.VL     := biq_create_data(0).VL
+  io.out.toBiq.bypass_data.VSEW   := biq_create_data(0).VSEW
+  io.out.toBiq.bypass_data.VLMUL  := biq_create_data(0).VLMUL
+  io.out.toBiq.bypass_data.PCALL  := biq_create_data(0).PCALL
+  io.out.toBiq.bypass_data.RTS    := biq_create_data(0).RTS
+  io.out.toBiq.bypass_data.PID    := biq_create_pid(0)
+  io.out.toBiq.bypass_data.LENGTH := biq_create_data(0).LENGTH
+
+  io.out.toBiq.bypass_data.src_info(1).lsu_match     := 0.U
+  io.out.toBiq.bypass_data.src_info(1).src_data.preg := biq_create_data(0).src1_data.preg
+  io.out.toBiq.bypass_data.src_info(1).src_data.wb   := biq_create_data(0).src1_data.wb
+  io.out.toBiq.bypass_data.src_info(1).src_data.rdy  := 0.U
+  io.out.toBiq.bypass_data.src_info(0).lsu_match     := 0.U
+  io.out.toBiq.bypass_data.src_info(0).src_data.preg := biq_create_data(0).src0_data.preg
+  io.out.toBiq.bypass_data.src_info(0).src_data.wb   := biq_create_data(0).src0_data.wb
+  io.out.toBiq.bypass_data.src_info(0).src_data.rdy  := 0.U
+
+  io.out.toBiq.bypass_data.src_vld  := biq_create_data(0).src_vld
+  io.out.toBiq.bypass_data.IID      := biq_create_iid(0)
+  io.out.toBiq.bypass_data.OPCODE   := biq_create_data(0).opcode
+
+  io.out.toBiq.src_rdy_for_bypass(0) := biq_create_data(0).src0_bp_rdy(1)
+  io.out.toBiq.src_rdy_for_bypass(1) := biq_create_data(0).src1_bp_rdy(1)
+
+
+  //----------------------------------------------------------
+  //                  Create Data for LSIQ
+  //----------------------------------------------------------
+  val lsiq_create_data = Wire(Vec(2, new ISData))
+  val lsiq_create_iid  = Wire(Vec(2, UInt(7.W)))
+
+  for(i <- 0 until 2){
+    when(dis_info.iq_create_sel(3)(i).bits === 0.U){
+      lsiq_create_data(i) := inst_read_data(0)
+      lsiq_create_iid(i) := inst_iid(0)
+    }.elsewhen(dis_info.iq_create_sel(3)(i).bits === 1.U){
+      lsiq_create_data(i) := inst_read_data(1)
+      lsiq_create_iid(i) := inst_iid(1)
+    }.elsewhen(dis_info.iq_create_sel(3)(i).bits === 2.U){
+      lsiq_create_data(i) := inst_read_data(2)
+      lsiq_create_iid(i) := inst_iid(2)
+    }.elsewhen(dis_info.iq_create_sel(3)(i).bits === 3.U){
+      lsiq_create_data(i) := inst_read_data(3)
+      lsiq_create_iid(i) := inst_iid(3)
+    }.otherwise{
+      lsiq_create_data(i) := 0.U.asTypeOf(new ISData)
+      lsiq_create_iid(i) := 0.U
+    }
+  }
+  //staddr indicate inst created into sdiq
+  //some vector load use vmb entry id instead of sdiq entry id
+  val is_lsiq_create_entry = Wire(Vec(2, UInt(12.W)))
+  is_lsiq_create_entry(0) := Mux(lsiq_create_data(0).LOAD, Cat(0.U(4.W), io.in.fromLSU.vmb_create0_entry), io.in.iq_create_entry.sdiq_dp(0))
+  is_lsiq_create_entry(1) := Mux(lsiq_create_data(1).LOAD, Cat(0.U(4.W), io.in.fromLSU.vmb_create1_entry), sdiq_vmb_create1_entry)
+
+  sdiq_vmb_create1_dp_en := Mux(lsiq_create_data(0).STADDR, dis_info.iq_create_sel(4)(1).valid, dis_info.iq_create_sel(4)(0).valid)
+  sdiq_vmb_create1_entry := Mux(lsiq_create_data(0).STADDR, io.in.iq_create_entry.sdiq_dp(1), io.in.iq_create_entry.sdiq_dp(0))
+
+  //----------------------------------------------------------
+  //                Reorganize for LSIQ create
+  //----------------------------------------------------------
+  val lsiq_create_sti_sel = Wire(Vec(2, Bool()))
+  for(i <- 0 until 2){
+    lsiq_create_sti_sel(i) := lsiq_create_data(i).STADDR && !lsiq_create_data(i).STR
+
+    io.out.toLsiq.create_data(i).VL            := lsiq_create_data(i).VL
+    io.out.toLsiq.create_data(i).VMB           := lsiq_create_data(i).VMB
+    io.out.toLsiq.create_data(i).SPLIT_NUM     := lsiq_create_data(i).SPLIT_NUM
+    io.out.toLsiq.create_data(i).VSEW          := lsiq_create_data(i).VSEW
+    io.out.toLsiq.create_data(i).VLMUL         := lsiq_create_data(i).VLMUL
+    io.out.toLsiq.create_data(i).BKPTB_DATA    := 0.U
+    io.out.toLsiq.create_data(i).BKPTA_DATA    := 0.U
+    io.out.toLsiq.create_data(i).AGEVEC_ALL    := 0.U
+    io.out.toLsiq.create_data(i).ALREADY_DA    := 0.U
+    io.out.toLsiq.create_data(i).UNALIGN_2ND   := 0.U
+    io.out.toLsiq.create_data(i).SPEC_FAIL     := 0.U
+    io.out.toLsiq.create_data(i).NO_SPEC_EXIST := io.in.lsiq_dp_no_spec_store_vld
+    io.out.toLsiq.create_data(i).NO_SPEC       := lsiq_create_data(i).NO_SPEC
+    io.out.toLsiq.create_data(i).SPLIT         := lsiq_create_data(i).SPLIT
+    io.out.toLsiq.create_data(i).SDIQ_ENTRY    := is_lsiq_create_entry(i)
+    io.out.toLsiq.create_data(i).STADDR        := lsiq_create_data(i).STADDR
+    io.out.toLsiq.create_data(i).PC            := lsiq_create_data(i).LSU_PC
+    io.out.toLsiq.create_data(i).BAR_TYPE      := lsiq_create_data(i).BAR_TYPE
+    io.out.toLsiq.create_data(i).BAR           := lsiq_create_data(i).BAR
+    io.out.toLsiq.create_data(i).STORE         := lsiq_create_data(i).STORE
+    io.out.toLsiq.create_data(i).LOAD          := lsiq_create_data(i).LOAD
+
+    io.out.toLsiq.create_data(i).SRCVM_LSU_MATCH := Mux(lsiq_create_data(i).srcv_vld(1), lsiq_create_data(i).srcv1_lsu_match, lsiq_create_data(i).srcvm_lsu_match)
+    io.out.toLsiq.create_data(i).SRCVM_DATA      := Mux(lsiq_create_data(i).srcv_vld(1), lsiq_create_data(i).srcv1_data, lsiq_create_data(i).srcvm_data)
+    io.out.toLsiq.create_data(i).src_info(1).lsu_match := Mux(lsiq_create_sti_sel(i), false.B, lsiq_create_data(i).src1_lsu_match)
+    io.out.toLsiq.create_data(i).src_info(1).src_data  := Mux(lsiq_create_sti_sel(i), "b0000000_1_1".U, lsiq_create_data(i).src1_data)
+    io.out.toLsiq.create_data(i).src_info(0).lsu_match := lsiq_create_data(i).src0_lsu_match
+    io.out.toLsiq.create_data(i).src_info(0).src_data  := lsiq_create_data(i).src0_data
+
+    io.out.toLsiq.create_data(i).DST_VREG   := lsiq_create_data(i).dst_vreg
+    io.out.toLsiq.create_data(i).DST_PREG   := lsiq_create_data(i).dst_preg
+    io.out.toLsiq.create_data(i).DSTV_VLD   := lsiq_create_data(i).dstv_vld
+    io.out.toLsiq.create_data(i).DST_VLD    := lsiq_create_data(i).dst_vld
+    io.out.toLsiq.create_data(i).SRCVM_VLD  := Mux(lsiq_create_data(i).srcv_vld(1), true.B, lsiq_create_data(i).srcvm_vld)
+    io.out.toLsiq.create_data(i).src_vld(1) := lsiq_create_data(i).src_vld(1) && !lsiq_create_sti_sel(i)
+    io.out.toLsiq.create_data(i).src_vld(0) := lsiq_create_data(i).src_vld(0)
+    io.out.toLsiq.create_data(i).IID        := lsiq_create_iid(i)
+    io.out.toLsiq.create_data(i).OPCODE     := lsiq_create_data(i).opcode
+  }
+
+  io.out.toLsiq.bypass_data.VL            := lsiq_create_data(0).VL
+  io.out.toLsiq.bypass_data.VMB           := lsiq_create_data(0).VMB
+  io.out.toLsiq.bypass_data.SPLIT_NUM     := lsiq_create_data(0).SPLIT_NUM
+  io.out.toLsiq.bypass_data.VSEW          := lsiq_create_data(0).VSEW
+  io.out.toLsiq.bypass_data.VLMUL         := lsiq_create_data(0).VLMUL
+  io.out.toLsiq.bypass_data.BKPTB_DATA    := 0.U
+  io.out.toLsiq.bypass_data.BKPTA_DATA    := 0.U
+  io.out.toLsiq.bypass_data.AGEVEC_ALL    := Cat(0.U(10.W), !io.in.lsiq_dp_create_bypass_oldest)
+  io.out.toLsiq.bypass_data.ALREADY_DA    := 0.U
+  io.out.toLsiq.bypass_data.UNALIGN_2ND   := 0.U
+  io.out.toLsiq.bypass_data.SPEC_FAIL     := 0.U
+  io.out.toLsiq.bypass_data.NO_SPEC_EXIST := io.in.lsiq_dp_no_spec_store_vld
+  io.out.toLsiq.bypass_data.NO_SPEC       := lsiq_create_data(0).NO_SPEC
+  io.out.toLsiq.bypass_data.SPLIT         := lsiq_create_data(0).SPLIT
+  io.out.toLsiq.bypass_data.SDIQ_ENTRY    := is_lsiq_create_entry(0)
+  io.out.toLsiq.bypass_data.STADDR        := lsiq_create_data(0).STADDR
+  io.out.toLsiq.bypass_data.PC            := lsiq_create_data(0).LSU_PC
+  io.out.toLsiq.bypass_data.BAR_TYPE      := lsiq_create_data(0).BAR_TYPE
+  io.out.toLsiq.bypass_data.BAR           := lsiq_create_data(0).BAR
+  io.out.toLsiq.bypass_data.STORE         := lsiq_create_data(0).STORE
+  io.out.toLsiq.bypass_data.LOAD          := lsiq_create_data(0).LOAD
+
+  io.out.toLsiq.bypass_data.SRCVM_LSU_MATCH := 0.U
+  io.out.toLsiq.bypass_data.SRCVM_DATA.preg := Mux(lsiq_create_data(0).srcv_vld(1), lsiq_create_data(0).srcv1_data.preg, lsiq_create_data(0).srcvm_data.preg)
+  io.out.toLsiq.bypass_data.SRCVM_DATA.wb   := Mux(lsiq_create_data(0).srcv_vld(1), lsiq_create_data(0).srcv1_data.wb, lsiq_create_data(0).srcvm_data.wb)
+  io.out.toLsiq.bypass_data.SRCVM_DATA.rdy  := 0.U
+  io.out.toLsiq.bypass_data.src_info(1).lsu_match     := 0.U
+  io.out.toLsiq.bypass_data.src_info(1).src_data.preg := lsiq_create_data(0).src1_data.preg
+  io.out.toLsiq.bypass_data.src_info(1).src_data.wb   := lsiq_create_data(0).src1_data.wb || lsiq_create_sti_sel(0)
+  io.out.toLsiq.bypass_data.src_info(1).src_data.rdy  := 0.U
+  io.out.toLsiq.bypass_data.src_info(0).lsu_match     := 0.U
+  io.out.toLsiq.bypass_data.src_info(0).src_data.preg := lsiq_create_data(0).src0_data.preg
+  io.out.toLsiq.bypass_data.src_info(0).src_data.wb   := lsiq_create_data(0).src0_data.wb
+  io.out.toLsiq.bypass_data.src_info(0).src_data.rdy  := 0.U
+
+  io.out.toLsiq.bypass_data.DST_VREG   := lsiq_create_data(0).dst_vreg
+  io.out.toLsiq.bypass_data.DST_PREG   := lsiq_create_data(0).dst_preg
+  io.out.toLsiq.bypass_data.DSTV_VLD   := lsiq_create_data(0).dstv_vld
+  io.out.toLsiq.bypass_data.DST_VLD    := lsiq_create_data(0).dst_vld
+  io.out.toLsiq.bypass_data.SRCVM_VLD  := Mux(lsiq_create_data(0).srcv_vld(1), true.B, lsiq_create_data(0).srcvm_vld)
+  io.out.toLsiq.bypass_data.src_vld(1) := lsiq_create_data(0).src_vld(1) && !lsiq_create_sti_sel(0)
+  io.out.toLsiq.bypass_data.src_vld(0) := lsiq_create_data(0).src_vld(0)
+  io.out.toLsiq.bypass_data.IID        := lsiq_create_iid(0)
+  io.out.toLsiq.bypass_data.OPCODE     := lsiq_create_data(0).opcode
+
+  io.out.toLsiq.create0_src_rdy_for_bypass(0) := lsiq_create_data(0).src0_bp_rdy(1)
+  io.out.toLsiq.create0_src_rdy_for_bypass(1) := lsiq_create_data(0).src1_bp_rdy(1) || lsiq_create_sti_sel(0)
+  io.out.toLsiq.create0_srcvm_rdy_for_bypass  := Mux(lsiq_create_data(0).srcv_vld(1), lsiq_create_data(0).srcv1_bp_rdy(1), lsiq_create_data(0).srcvm_bp_rdy(1))
+
+  for(i <- 0 until 2){
+    io.out.toLsiq.create_load(i)    := lsiq_create_data(i).LOAD
+    io.out.toLsiq.create_store(i)   := lsiq_create_data(i).STORE
+    io.out.toLsiq.create_bar(i)     := lsiq_create_data(i).BAR
+    io.out.toLsiq.create_no_spec(i) := lsiq_create_data(i).NO_SPEC
+  }
+
+  //----------------------------------------------------------
+  //                  Create Data for SDIQ
+  //----------------------------------------------------------
+  val sdiq_create_data = Wire(Vec(2, new ISData))
+
+  for(i <- 0 until 2){
+    when(dis_info.iq_create_sel(4)(i).bits === 0.U){
+      sdiq_create_data(i) := inst_read_data(0)
+    }.elsewhen(dis_info.iq_create_sel(4)(i).bits === 1.U){
+      sdiq_create_data(i) := inst_read_data(1)
+    }.elsewhen(dis_info.iq_create_sel(4)(i).bits === 2.U){
+      sdiq_create_data(i) := inst_read_data(2)
+    }.elsewhen(dis_info.iq_create_sel(4)(i).bits === 3.U){
+      sdiq_create_data(i) := inst_read_data(3)
+    }.otherwise{
+      sdiq_create_data(i) := 0.U.asTypeOf(new ISData)
+    }
+  }
+
+  //----------------------------------------------------------
+  //                Reorganize for SDIQ create
+  //----------------------------------------------------------
+  val sdiq_create_sti_sel = Wire(Vec(2, Bool()))
+  for(i <- 0 until 2){
+    sdiq_create_sti_sel(i) := !sdiq_create_data(i).STR
+    io.out.toAiq.sdiq_create_src_sel(i) := sdiq_create_sti_sel(i)
+
+    io.out.sdiq_create_data(i).LOAD            := sdiq_create_data(i).LOAD
+    io.out.sdiq_create_data(i).STADDR1_IN_STQ  := 0.U
+    io.out.sdiq_create_data(i).STADDR0_IN_STQ  := 0.U
+    io.out.sdiq_create_data(i).STDATA1_VLD     := 0.U
+    io.out.sdiq_create_data(i).UNALIGN         := 0.U
+    io.out.sdiq_create_data(i).SRCV0_LSU_MATCH := sdiq_create_data(i).srcv2_lsu_match
+    io.out.sdiq_create_data(i).SRCV0_DATA      := sdiq_create_data(i).srcv2_data.asUInt(8,0).asTypeOf(new srcData9)
+    io.out.sdiq_create_data(i).SRC0_LSU_MATCH  := Mux(sdiq_create_sti_sel(i), sdiq_create_data(i).src1_lsu_match, sdiq_create_data(i).src2_lsu_match)
+    io.out.sdiq_create_data(i).SRC0_DATA       := Mux(sdiq_create_sti_sel(i), sdiq_create_data(i).src1_data, sdiq_create_data(i).src2_data.asUInt(8,0).asTypeOf(new srcData9))
+    io.out.sdiq_create_data(i).SRCV0_VLD       := sdiq_create_data(i).srcv_vld(2)
+    io.out.sdiq_create_data(i).SRC0_VLD        := Mux(sdiq_create_sti_sel(i), sdiq_create_data(i).src_vld(1), sdiq_create_data(i).src_vld(2))
+  }
+
+  //----------------------------------------------------------
+  //                  Create Data for VIQ0
+  //----------------------------------------------------------
+  val viq0_create_data         = Wire(Vec(2, new ISData))
+  val viq0_create_iid          = Wire(Vec(2, UInt(7.W)))
+  val viq0_create_lch_rdy_viq0 = Wire(Vec(2, Vec(8, Bool())))
+  val viq0_create_lch_rdy_viq1 = Wire(Vec(2, Vec(8, Bool())))
+
+  for(i <- 0 until 2){
+    when(dis_info.iq_create_sel(5)(i).bits === 0.U){
+      viq0_create_data(i)         := inst_read_data(0)
+      viq0_create_iid(i)          := inst_iid(0)
+      viq0_create_lch_rdy_viq0(i) := inst_lch_rdy_viq0(0)
+      viq0_create_lch_rdy_viq1(i) := inst_lch_rdy_viq1(0)
+    }.elsewhen(dis_info.iq_create_sel(5)(i).bits === 1.U){
+      viq0_create_data(i)         := inst_read_data(1)
+      viq0_create_iid(i)          := inst_iid(1)
+      viq0_create_lch_rdy_viq0(i) := inst_lch_rdy_viq0(1)
+      viq0_create_lch_rdy_viq1(i) := inst_lch_rdy_viq1(1)
+    }.elsewhen(dis_info.iq_create_sel(5)(i).bits === 2.U){
+      viq0_create_data(i)         := inst_read_data(2)
+      viq0_create_iid(i)          := inst_iid(2)
+      viq0_create_lch_rdy_viq0(i) := inst_lch_rdy_viq0(2)
+      viq0_create_lch_rdy_viq1(i) := inst_lch_rdy_viq1(2)
+    }.elsewhen(dis_info.iq_create_sel(5)(i).bits === 3.U){
+      viq0_create_data(i)         := inst_read_data(3)
+      viq0_create_iid(i)          := inst_iid(3)
+      viq0_create_lch_rdy_viq0(i) := inst_lch_rdy_viq0(3)
+      viq0_create_lch_rdy_viq1(i) := inst_lch_rdy_viq1(3)
+    }.otherwise{
+      viq0_create_data(i)         := 0.U.asTypeOf(new ISData)
+      viq0_create_iid(i)          := 0.U
+      viq0_create_lch_rdy_viq0(i) := WireInit(VecInit(Seq.fill(8)(false.B)))
+      viq0_create_lch_rdy_viq1(i) := WireInit(VecInit(Seq.fill(8)(false.B)))
+    }
+  }
+
+  //----------------------------------------------------------
+  //                Reorganize for VIQ0 create
+  //----------------------------------------------------------
+  val out_viq0_create_data = WireInit(VecInit(Seq.fill(2)(0.U.asTypeOf(new VIQData))))
+
+  for(i <- 0 until 2){
+    out_viq0_create_data(i).VL           := viq0_create_data(i).VL
+    out_viq0_create_data(i).VSEW         := viq0_create_data(i).VSEW
+    out_viq0_create_data(i).VLMUL        := viq0_create_data(i).VLMUL
+    out_viq0_create_data(i).VMUL         := viq0_create_data(i).VMUL
+    //is_viq0_create_data(i).VMUL_UNSPLIT := viq0_create_data(i).VMUL_UNSPLIT
+    out_viq0_create_data(i).VMLA_SHORT   := viq0_create_data(i).VMLA_SHORT
+    out_viq0_create_data(i).VDIV         := viq0_create_data(i).VDIV
+    out_viq0_create_data(i).LCH_RDY_VIQ1 := viq0_create_lch_rdy_viq1(i)
+    out_viq0_create_data(i).LCH_RDY_VIQ0 := viq0_create_lch_rdy_viq0(i)
+    out_viq0_create_data(i).VMLA_TYPE    := viq0_create_data(i).VMLA_TYPE
+    out_viq0_create_data(i).SPLIT_NUM    := viq0_create_data(i).SPLIT_NUM
+    out_viq0_create_data(i).SPLIT_LAST   := viq0_create_data(i).SPLIT_LAST
+    out_viq0_create_data(i).MFVR         := viq0_create_data(i).MFVR
+    out_viq0_create_data(i).VMLA         := viq0_create_data(i).VMLA
+
+    out_viq0_create_data(i).SRCVM_LSU_MATCH := viq0_create_data(i).srcvm_lsu_match
+    out_viq0_create_data(i).SRCVM_DATA      := viq0_create_data(i).srcvm_data
+    out_viq0_create_data(i).SRCV2_LSU_MATCH := Mux(viq0_create_data(i).VIQ_SRCV12_SWITCH, viq0_create_data(i).srcv1_lsu_match, viq0_create_data(i).srcv2_lsu_match)
+    out_viq0_create_data(i).SRCV2_DATA      := Mux(viq0_create_data(i).VIQ_SRCV12_SWITCH,
+                                                Cat(0.U(1.W),viq0_create_data(i).srcv1_data.asUInt).asTypeOf(new srcData10),
+                                                viq0_create_data(i).srcv2_data)
+    out_viq0_create_data(i).srcv_info(1).lsu_match := Mux(viq0_create_data(i).VIQ_SRCV12_SWITCH, viq0_create_data(i).srcv2_lsu_match, viq0_create_data(i).srcv1_lsu_match)
+    out_viq0_create_data(i).srcv_info(1).srcv_data := Mux(viq0_create_data(i).VIQ_SRCV12_SWITCH,
+                                                        viq0_create_data(i).srcv2_data.asUInt(8,0).asTypeOf(new srcData9),
+                                                        viq0_create_data(i).srcv1_data)
+    out_viq0_create_data(i).srcv_info(0).lsu_match := viq0_create_data(i).srcv0_lsu_match
+    out_viq0_create_data(i).srcv_info(0).srcv_data := viq0_create_data(i).srcv0_data
+
+    out_viq0_create_data(i).DST_EREG     := viq0_create_data(i).dst_ereg
+    out_viq0_create_data(i).DST_VREG     := viq0_create_data(i).dst_vreg
+    out_viq0_create_data(i).DST_PREG     := viq0_create_data(i).dst_preg
+    out_viq0_create_data(i).DSTE_VLD     := viq0_create_data(i).dste_vld
+    out_viq0_create_data(i).DSTV_VLD     := viq0_create_data(i).dstv_vld
+    out_viq0_create_data(i).DST_VLD      := viq0_create_data(i).dst_vld
+    out_viq0_create_data(i).SRCVM_VLD    := viq0_create_data(i).srcvm_vld
+    out_viq0_create_data(i).srcv_vld(2)  := Mux(viq0_create_data(i).VIQ_SRCV12_SWITCH, viq0_create_data(i).srcv_vld(1), viq0_create_data(i).srcv_vld(2))
+    out_viq0_create_data(i).srcv_vld(1)  := Mux(viq0_create_data(i).VIQ_SRCV12_SWITCH, viq0_create_data(i).srcv_vld(2), viq0_create_data(i).srcv_vld(1))
+    out_viq0_create_data(i).srcv_vld(0)  := viq0_create_data(i).srcv_vld(0)
+    out_viq0_create_data(i).IID          := viq0_create_iid(i)
+    out_viq0_create_data(i).OPCODE       := viq0_create_data(i).opcode
+  }
+  io.out.toViq0.create_data := out_viq0_create_data
+
+  io.out.toViq0.bypass_data.VL           := viq0_create_data(0).VL
+  io.out.toViq0.bypass_data.VSEW         := viq0_create_data(0).VSEW
+  io.out.toViq0.bypass_data.VLMUL        := viq0_create_data(0).VLMUL
+  io.out.toViq0.bypass_data.VMUL         := viq0_create_data(0).VMUL
+  //io.out.toViq0.bypass_data.VMUL_UNSPLIT := viq0_create_data(i).VMUL_UNSPLIT
+  io.out.toViq0.bypass_data.VMLA_SHORT   := viq0_create_data(0).VMLA_SHORT
+  io.out.toViq0.bypass_data.VDIV         := viq0_create_data(0).VDIV
+  io.out.toViq0.bypass_data.LCH_RDY_VIQ1 := viq0_create_lch_rdy_viq1(0)
+  io.out.toViq0.bypass_data.LCH_RDY_VIQ0 := viq0_create_lch_rdy_viq0(0)
+  io.out.toViq0.bypass_data.VMLA_TYPE    := viq0_create_data(0).VMLA_TYPE
+  io.out.toViq0.bypass_data.SPLIT_NUM    := viq0_create_data(0).SPLIT_NUM
+  io.out.toViq0.bypass_data.SPLIT_LAST   := viq0_create_data(0).SPLIT_LAST
+  io.out.toViq0.bypass_data.MFVR         := viq0_create_data(0).MFVR
+  io.out.toViq0.bypass_data.VMLA         := viq0_create_data(0).VMLA
+
+  io.out.toViq0.bypass_data.SRCVM_LSU_MATCH             := 0.U
+  io.out.toViq0.bypass_data.SRCVM_DATA.preg             := viq0_create_data(0).srcvm_data.preg
+  io.out.toViq0.bypass_data.SRCVM_DATA.wb               := viq0_create_data(0).srcvm_data.wb
+  io.out.toViq0.bypass_data.SRCVM_DATA.rdy              := 0.U
+  io.out.toViq0.bypass_data.SRCV2_LSU_MATCH             := 0.U
+  io.out.toViq0.bypass_data.SRCV2_DATA.rdy              := 0.U
+  io.out.toViq0.bypass_data.SRCV2_DATA.preg             := Mux(viq0_create_data(0).VIQ_SRCV12_SWITCH, viq0_create_data(0).srcv1_data.preg, viq0_create_data(0).srcv2_data.preg)
+  io.out.toViq0.bypass_data.SRCV2_DATA.wb               := Mux(viq0_create_data(0).VIQ_SRCV12_SWITCH, viq0_create_data(0).srcv1_data.wb, viq0_create_data(0).srcv2_data.wb)
+  io.out.toViq0.bypass_data.SRCV2_DATA.mla_rdy          := 0.U
+  io.out.toViq0.bypass_data.srcv_info(1).lsu_match      := 0.U
+  io.out.toViq0.bypass_data.srcv_info(1).srcv_data.preg := Mux(viq0_create_data(0).VIQ_SRCV12_SWITCH, viq0_create_data(0).srcv2_data.preg, viq0_create_data(0).srcv1_data.preg)
+  io.out.toViq0.bypass_data.srcv_info(1).srcv_data.wb   := Mux(viq0_create_data(0).VIQ_SRCV12_SWITCH, viq0_create_data(0).srcv2_data.wb, viq0_create_data(0).srcv1_data.wb)
+  io.out.toViq0.bypass_data.srcv_info(1).srcv_data.rdy  := 0.U
+  io.out.toViq0.bypass_data.srcv_info(0).lsu_match      := 0.U
+  io.out.toViq0.bypass_data.srcv_info(0).srcv_data.preg := viq0_create_data(0).srcv0_data.preg
+  io.out.toViq0.bypass_data.srcv_info(0).srcv_data.wb   := viq0_create_data(0).srcv0_data.wb
+  io.out.toViq0.bypass_data.srcv_info(0).srcv_data.rdy  := 0.U
+
+  io.out.toViq0.bypass_data.DST_EREG     := viq0_create_data(0).dst_ereg
+  io.out.toViq0.bypass_data.DST_VREG     := viq0_create_data(0).dst_vreg
+  io.out.toViq0.bypass_data.DST_PREG     := viq0_create_data(0).dst_preg
+  io.out.toViq0.bypass_data.DSTE_VLD     := viq0_create_data(0).dste_vld
+  io.out.toViq0.bypass_data.DSTV_VLD     := viq0_create_data(0).dstv_vld
+  io.out.toViq0.bypass_data.DST_VLD      := viq0_create_data(0).dst_vld
+  io.out.toViq0.bypass_data.SRCVM_VLD    := viq0_create_data(0).srcvm_vld
+  io.out.toViq0.bypass_data.srcv_vld(2)  := Mux(viq0_create_data(0).VIQ_SRCV12_SWITCH, viq0_create_data(0).srcv_vld(1), viq0_create_data(0).srcv_vld(2))
+  io.out.toViq0.bypass_data.srcv_vld(1)  := Mux(viq0_create_data(0).VIQ_SRCV12_SWITCH, viq0_create_data(0).srcv_vld(2), viq0_create_data(0).srcv_vld(1))
+  io.out.toViq0.bypass_data.srcv_vld(0)  := viq0_create_data(0).srcv_vld(0)
+  io.out.toViq0.bypass_data.IID          := viq0_create_iid(0)
+  io.out.toViq0.bypass_data.OPCODE       := viq0_create_data(0).opcode
+
+  io.out.toViq0.srcv_rdy_for_bypass(0) := viq0_create_data(0).srcv0_bp_rdy
+  io.out.toViq0.srcv_rdy_for_bypass(1) := viq0_create_data(0).srcv1_bp_rdy
+  io.out.toViq0.srcv_rdy_for_bypass(2) := viq0_create_data(0).srcv2_bp_rdy
+  io.out.toViq0.srcvm_rdy_for_bypass   := viq0_create_data(0).srcvm_bp_rdy
+  io.out.toViq0.create_vdiv            := viq0_create_data(0).VDIV
+
+  //----------------------------------------------------------
+  //                  Create Data for VIQ1
+  //----------------------------------------------------------
+  val viq1_create_data         = Wire(Vec(2, new ISData))
+  val viq1_create_iid          = Wire(Vec(2, UInt(7.W)))
+  val viq1_create_lch_rdy_viq0 = Wire(Vec(2, Vec(8, Bool())))
+  val viq1_create_lch_rdy_viq1 = Wire(Vec(2, Vec(8, Bool())))
+
+  for(i <- 0 until 2){
+    when(dis_info.iq_create_sel(6)(i).bits === 0.U){
+      viq1_create_data(i)         := inst_read_data(0)
+      viq1_create_iid(i)          := inst_iid(0)
+      viq1_create_lch_rdy_viq0(i) := inst_lch_rdy_viq0(0)
+      viq1_create_lch_rdy_viq1(i) := inst_lch_rdy_viq1(0)
+    }.elsewhen(dis_info.iq_create_sel(6)(i).bits === 1.U){
+      viq1_create_data(i)         := inst_read_data(1)
+      viq1_create_iid(i)          := inst_iid(1)
+      viq1_create_lch_rdy_viq0(i) := inst_lch_rdy_viq0(1)
+      viq1_create_lch_rdy_viq1(i) := inst_lch_rdy_viq1(1)
+    }.elsewhen(dis_info.iq_create_sel(6)(i).bits === 2.U){
+      viq1_create_data(i)         := inst_read_data(2)
+      viq1_create_iid(i)          := inst_iid(2)
+      viq1_create_lch_rdy_viq0(i) := inst_lch_rdy_viq0(2)
+      viq1_create_lch_rdy_viq1(i) := inst_lch_rdy_viq1(2)
+    }.elsewhen(dis_info.iq_create_sel(6)(i).bits === 3.U){
+      viq1_create_data(i)         := inst_read_data(3)
+      viq1_create_iid(i)          := inst_iid(3)
+      viq1_create_lch_rdy_viq0(i) := inst_lch_rdy_viq0(3)
+      viq1_create_lch_rdy_viq1(i) := inst_lch_rdy_viq1(3)
+    }.otherwise{
+      viq1_create_data(i)         := 0.U.asTypeOf(new ISData)
+      viq1_create_iid(i)          := 0.U
+      viq1_create_lch_rdy_viq0(i) := WireInit(VecInit(Seq.fill(8)(false.B)))
+      viq1_create_lch_rdy_viq1(i) := WireInit(VecInit(Seq.fill(8)(false.B)))
+    }
+  }
+
+  //----------------------------------------------------------
+  //                Reorganize for VIQ1 create
+  //----------------------------------------------------------
+  val out_viq1_create_data = WireInit(VecInit(Seq.fill(2)(0.U.asTypeOf(new VIQData))))
+
+  for(i <- 0 until 2){
+    out_viq1_create_data(i).VL           := viq1_create_data(i).VL
+    out_viq1_create_data(i).VSEW         := viq1_create_data(i).VSEW
+    out_viq1_create_data(i).VLMUL        := viq1_create_data(i).VLMUL
+    //out_viq1_create_data(i).VMUL         := viq0_create_data(i).VMUL
+    out_viq1_create_data(i).VMUL_UNSPLIT := viq1_create_data(i).VMUL_UNSPLIT
+    out_viq1_create_data(i).VMLA_SHORT   := viq1_create_data(i).VMLA_SHORT
+    //out_viq1_create_data(i).VDIV         := viq0_create_data(i).VDIV
+    out_viq1_create_data(i).LCH_RDY_VIQ1 := viq1_create_lch_rdy_viq1(i)
+    out_viq1_create_data(i).LCH_RDY_VIQ0 := viq1_create_lch_rdy_viq0(i)
+    out_viq1_create_data(i).VMLA_TYPE    := viq1_create_data(i).VMLA_TYPE
+    out_viq1_create_data(i).SPLIT_NUM    := viq1_create_data(i).SPLIT_NUM
+    out_viq1_create_data(i).SPLIT_LAST   := viq1_create_data(i).SPLIT_LAST
+    out_viq1_create_data(i).MFVR         := viq1_create_data(i).MFVR
+    out_viq1_create_data(i).VMLA         := viq1_create_data(i).VMLA
+
+    out_viq1_create_data(i).SRCVM_LSU_MATCH := viq1_create_data(i).srcvm_lsu_match
+    out_viq1_create_data(i).SRCVM_DATA      := viq1_create_data(i).srcvm_data
+    out_viq1_create_data(i).SRCV2_LSU_MATCH := Mux(viq1_create_data(i).VIQ_SRCV12_SWITCH, viq1_create_data(i).srcv1_lsu_match, viq1_create_data(i).srcv2_lsu_match)
+    out_viq1_create_data(i).SRCV2_DATA      := Mux(viq1_create_data(i).VIQ_SRCV12_SWITCH,
+      Cat(0.U(1.W),viq1_create_data(i).srcv1_data.asUInt).asTypeOf(new srcData10),
+      viq1_create_data(i).srcv2_data)
+    out_viq1_create_data(i).srcv_info(1).lsu_match := Mux(viq1_create_data(i).VIQ_SRCV12_SWITCH, viq1_create_data(i).srcv2_lsu_match, viq1_create_data(i).srcv1_lsu_match)
+    out_viq1_create_data(i).srcv_info(1).srcv_data := Mux(viq1_create_data(i).VIQ_SRCV12_SWITCH,
+      viq1_create_data(i).srcv2_data.asUInt(8,0).asTypeOf(new srcData9),
+      viq1_create_data(i).srcv1_data)
+    out_viq1_create_data(i).srcv_info(0).lsu_match := viq1_create_data(i).srcv0_lsu_match
+    out_viq1_create_data(i).srcv_info(0).srcv_data := viq1_create_data(i).srcv0_data
+
+    out_viq1_create_data(i).DST_EREG     := viq1_create_data(i).dst_ereg
+    out_viq1_create_data(i).DST_VREG     := viq1_create_data(i).dst_vreg
+    out_viq1_create_data(i).DST_PREG     := viq1_create_data(i).dst_preg
+    out_viq1_create_data(i).DSTE_VLD     := viq1_create_data(i).dste_vld
+    out_viq1_create_data(i).DSTV_VLD     := viq1_create_data(i).dstv_vld
+    out_viq1_create_data(i).DST_VLD      := viq1_create_data(i).dst_vld
+    out_viq1_create_data(i).SRCVM_VLD    := viq1_create_data(i).srcvm_vld
+    out_viq1_create_data(i).srcv_vld(2)  := Mux(viq1_create_data(i).VIQ_SRCV12_SWITCH, viq1_create_data(i).srcv_vld(1), viq1_create_data(i).srcv_vld(2))
+    out_viq1_create_data(i).srcv_vld(1)  := Mux(viq1_create_data(i).VIQ_SRCV12_SWITCH, viq1_create_data(i).srcv_vld(2), viq1_create_data(i).srcv_vld(1))
+    out_viq1_create_data(i).srcv_vld(0)  := viq1_create_data(i).srcv_vld(0)
+    out_viq1_create_data(i).IID          := viq1_create_iid(i)
+    out_viq1_create_data(i).OPCODE       := viq1_create_data(i).opcode
+  }
+  io.out.toViq1.create_data := out_viq1_create_data
+
+  io.out.toViq1.bypass_data.VL           := viq1_create_data(0).VL
+  io.out.toViq1.bypass_data.VSEW         := viq1_create_data(0).VSEW
+  io.out.toViq1.bypass_data.VLMUL        := viq1_create_data(0).VLMUL
+  //io.out.toViq0.bypass_data.VMUL         := viq0_create_data(0).VMUL
+  io.out.toViq1.bypass_data.VMUL_UNSPLIT := viq1_create_data(0).VMUL_UNSPLIT
+  io.out.toViq1.bypass_data.VMLA_SHORT   := viq1_create_data(0).VMLA_SHORT
+  //io.out.toViq0.bypass_data.VDIV         := viq0_create_data(0).VDIV
+  io.out.toViq1.bypass_data.LCH_RDY_VIQ1 := viq1_create_lch_rdy_viq1(0)
+  io.out.toViq1.bypass_data.LCH_RDY_VIQ0 := viq1_create_lch_rdy_viq0(0)
+  io.out.toViq1.bypass_data.VMLA_TYPE    := viq1_create_data(0).VMLA_TYPE
+  io.out.toViq1.bypass_data.SPLIT_NUM    := viq1_create_data(0).SPLIT_NUM
+  io.out.toViq1.bypass_data.SPLIT_LAST   := viq1_create_data(0).SPLIT_LAST
+  io.out.toViq1.bypass_data.MFVR         := viq1_create_data(0).MFVR
+  io.out.toViq1.bypass_data.VMLA         := viq1_create_data(0).VMLA
+
+  io.out.toViq1.bypass_data.SRCVM_LSU_MATCH             := 0.U
+  io.out.toViq1.bypass_data.SRCVM_DATA.preg             := viq1_create_data(0).srcvm_data.preg
+  io.out.toViq1.bypass_data.SRCVM_DATA.wb               := viq1_create_data(0).srcvm_data.wb
+  io.out.toViq1.bypass_data.SRCVM_DATA.rdy              := 0.U
+  io.out.toViq1.bypass_data.SRCV2_LSU_MATCH             := 0.U
+  io.out.toViq1.bypass_data.SRCV2_DATA.rdy              := 0.U
+  io.out.toViq1.bypass_data.SRCV2_DATA.preg             := Mux(viq1_create_data(0).VIQ_SRCV12_SWITCH, viq1_create_data(0).srcv1_data.preg, viq1_create_data(0).srcv2_data.preg)
+  io.out.toViq1.bypass_data.SRCV2_DATA.wb               := Mux(viq1_create_data(0).VIQ_SRCV12_SWITCH, viq1_create_data(0).srcv1_data.wb, viq1_create_data(0).srcv2_data.wb)
+  io.out.toViq1.bypass_data.SRCV2_DATA.mla_rdy          := 0.U
+  io.out.toViq1.bypass_data.srcv_info(1).lsu_match      := 0.U
+  io.out.toViq1.bypass_data.srcv_info(1).srcv_data.preg := Mux(viq1_create_data(0).VIQ_SRCV12_SWITCH, viq1_create_data(0).srcv2_data.preg, viq1_create_data(0).srcv1_data.preg)
+  io.out.toViq1.bypass_data.srcv_info(1).srcv_data.wb   := Mux(viq1_create_data(0).VIQ_SRCV12_SWITCH, viq1_create_data(0).srcv2_data.wb, viq1_create_data(0).srcv1_data.wb)
+  io.out.toViq1.bypass_data.srcv_info(1).srcv_data.rdy  := 0.U
+  io.out.toViq1.bypass_data.srcv_info(0).lsu_match      := 0.U
+  io.out.toViq1.bypass_data.srcv_info(0).srcv_data.preg := viq1_create_data(0).srcv0_data.preg
+  io.out.toViq1.bypass_data.srcv_info(0).srcv_data.wb   := viq1_create_data(0).srcv0_data.wb
+  io.out.toViq1.bypass_data.srcv_info(0).srcv_data.rdy  := 0.U
+
+  io.out.toViq1.bypass_data.DST_EREG     := viq1_create_data(0).dst_ereg
+  io.out.toViq1.bypass_data.DST_VREG     := viq1_create_data(0).dst_vreg
+  io.out.toViq1.bypass_data.DST_PREG     := viq1_create_data(0).dst_preg
+  io.out.toViq1.bypass_data.DSTE_VLD     := viq1_create_data(0).dste_vld
+  io.out.toViq1.bypass_data.DSTV_VLD     := viq1_create_data(0).dstv_vld
+  io.out.toViq1.bypass_data.DST_VLD      := viq1_create_data(0).dst_vld
+  io.out.toViq1.bypass_data.SRCVM_VLD    := viq1_create_data(0).srcvm_vld
+  io.out.toViq1.bypass_data.srcv_vld(2)  := Mux(viq1_create_data(0).VIQ_SRCV12_SWITCH, viq1_create_data(0).srcv_vld(1), viq1_create_data(0).srcv_vld(2))
+  io.out.toViq1.bypass_data.srcv_vld(1)  := Mux(viq1_create_data(0).VIQ_SRCV12_SWITCH, viq1_create_data(0).srcv_vld(2), viq1_create_data(0).srcv_vld(1))
+  io.out.toViq1.bypass_data.srcv_vld(0)  := viq1_create_data(0).srcv_vld(0)
+  io.out.toViq1.bypass_data.IID          := viq1_create_iid(0)
+  io.out.toViq1.bypass_data.OPCODE       := viq1_create_data(0).opcode
+
+  io.out.toViq1.srcv_rdy_for_bypass(0) := viq1_create_data(0).srcv0_bp_rdy
+  io.out.toViq1.srcv_rdy_for_bypass(1) := viq1_create_data(0).srcv1_bp_rdy
+  io.out.toViq1.srcv_rdy_for_bypass(2) := viq1_create_data(0).srcv2_bp_rdy
+  io.out.toViq1.srcvm_rdy_for_bypass   := viq1_create_data(0).srcvm_bp_rdy
+
+  //==========================================================
+  //             Output for IR pre dispatch logic
+  //==========================================================
+  //if inst shift between IS registers, the pre dispatch information
+  //should be re-calculaten by IR ctrl related logic.
+  io.out.toIR.inst2_ctrl_info.VMB     := inst_read_data(2).VMB
+  io.out.toIR.inst2_ctrl_info.PIPE7   := inst_read_data(2).PIPE6
+  io.out.toIR.inst2_ctrl_info.PIPE6   := inst_read_data(2).PIPE6
+  io.out.toIR.inst2_ctrl_info.PIPE67  := inst_read_data(2).PIPE67
+  io.out.toIR.inst2_ctrl_info.SPECIAL := inst_read_data(2).SPECIAL
+  io.out.toIR.inst2_ctrl_info.STADDR  := inst_read_data(2).STADDR
+  io.out.toIR.inst2_ctrl_info.INTMASK := inst_read_data(2).INTMASK
+  io.out.toIR.inst2_ctrl_info.SPLIT   := inst_read_data(2).SPLIT
+  io.out.toIR.inst2_ctrl_info.LSU     := inst_read_data(2).LSU
+  io.out.toIR.inst2_ctrl_info.BJU     := inst_read_data(2).BJU
+  io.out.toIR.inst2_ctrl_info.DIV     := inst_read_data(2).DIV
+  io.out.toIR.inst2_ctrl_info.MULT    := inst_read_data(2).MULT
+  io.out.toIR.inst2_ctrl_info.ALU     := inst_read_data(2).ALU
+
+  io.out.toIR.inst3_ctrl_info.VMB     := inst_read_data(3).VMB
+  io.out.toIR.inst3_ctrl_info.PIPE7   := inst_read_data(3).PIPE6
+  io.out.toIR.inst3_ctrl_info.PIPE6   := inst_read_data(3).PIPE6
+  io.out.toIR.inst3_ctrl_info.PIPE67  := inst_read_data(3).PIPE67
+  io.out.toIR.inst3_ctrl_info.SPECIAL := inst_read_data(3).SPECIAL
+  io.out.toIR.inst3_ctrl_info.STADDR  := inst_read_data(3).STADDR
+  io.out.toIR.inst3_ctrl_info.INTMASK := inst_read_data(3).INTMASK
+  io.out.toIR.inst3_ctrl_info.SPLIT   := inst_read_data(3).SPLIT
+  io.out.toIR.inst3_ctrl_info.LSU     := inst_read_data(3).LSU
+  io.out.toIR.inst3_ctrl_info.BJU     := inst_read_data(3).BJU
+  io.out.toIR.inst3_ctrl_info.DIV     := inst_read_data(3).DIV
+  io.out.toIR.inst3_ctrl_info.MULT    := inst_read_data(3).MULT
+  io.out.toIR.inst3_ctrl_info.ALU     := inst_read_data(3).ALU
+
+  //==========================================================
+  //               PID assign signal for PCFIFO
+  //==========================================================
+
+
 }
