@@ -67,12 +67,14 @@ class ISStageInput extends Bundle {
   val iq_cnt_info = Vec(8, new IQCntInfo)
 
   val iq_create_entry = new Bundle{
-    val aiq_aiq = Vec(2, Vec(2, UInt(8.W)))
+    val aiq0_aiq = Vec(2, UInt(8.W))
+    val aiq1_aiq = Vec(2, UInt(8.W))
     val biq_aiq = Vec(2, UInt(12.W))
     val lsiq_aiq = Vec(2, UInt(12.W))
     val sdiq_aiq = Vec(2, UInt(12.W))
     val sdiq_dp = Vec(2, UInt(12.W))//the same with sdiq_aiq
-    val viq_viq = Vec(2, Vec(2, UInt(8.W)))
+    val viq0_viq = Vec(2, UInt(8.W))
+    val viq1_viq = Vec(2, UInt(8.W))
   }
   val lsiq_dp_create_bypass_oldest = Bool()
   val lsiq_dp_no_spec_store_vld = Bool()
@@ -141,19 +143,20 @@ class ISStageOutput extends Bundle{
     val dp_en = Bool()
     val en = Bool()
     val gateclk_en = Bool()
+    val sel = UInt(2.W)
   }))
 
   val toAiq0 = new Bundle {
     val bypass_data = new AIQ0Data
     val create_data = Vec(2, new AIQ0Data)
     val create_div = Bool()
-    val src_rdy_for_bypas = Vec(3, Bool())
+    val src_rdy_for_bypass = Vec(3, Bool())
   }
   val toAiq1 = new Bundle {
     val bypass_data = new AIQ1Data
     val create_data = Vec(2, new AIQ1Data)
     val create_alu = Bool()
-    val src_rdy_for_bypas = Vec(3, Bool())
+    val src_rdy_for_bypass = Vec(3, Bool())
   }
   val toAiq = new Bundle {
     val inst_src_preg = Vec(4, Vec(3, UInt(7.W)))
@@ -162,7 +165,7 @@ class ISStageOutput extends Bundle{
   val toBiq = new Bundle {
     val bypass_data = new BIQData
     val create_data = Vec(2, new BIQData)
-    val src_rdy_for_bypas = Vec(2, Bool())
+    val src_rdy_for_bypass = Vec(2, Bool())
   }
   val toLsiq = new Bundle {
     val bypass_data = new LSIQData
@@ -172,21 +175,21 @@ class ISStageOutput extends Bundle{
     val create_no_spec = Vec(2, Bool())
     val create_store = Vec(2, Bool())
 
-    val create0_src_rdy_for_bypas = Vec(2, Bool())
+    val create0_src_rdy_for_bypass = Vec(2, Bool())
     val create0_srcvm_rdy_for_bypass = Bool()
   }
   val sdiq_create_data = Vec(2, new SDIQData)
   val toViq0 = new Bundle{
     val bypass_data = new VIQData
     val create_data = Vec(2, new VIQData)
-    val srcv_rdy_for_bypas = Vec(3, Bool())
+    val srcv_rdy_for_bypass = Vec(3, Bool())
     val srcvm_rdy_for_bypass = Bool()
     val create_vdiv = Bool()
   }
   val toViq1 = new Bundle{
     val bypass_data = new VIQData
     val create_data = Vec(2, new VIQData)
-    val srcv_rdy_for_bypas = Vec(3, Bool())
+    val srcv_rdy_for_bypass = Vec(3, Bool())
     val srcvm_rdy_for_bypass = Bool()
   }
   val viq_inst_srcv2_vreg = Vec(4, UInt(7.W))
@@ -835,6 +838,306 @@ class ISStage extends Module{
   //==========================================================
   //                 Assign PCFIFO ID (PID)
   //==========================================================
+  val inst_pcfifo = inst_read_data.map(_.PCFIFO)
+
+  val inst_alloc_pid = Wire(Vec(4, UInt(5.W)))
+  inst_alloc_pid(0) := io.in.fromIU.pcfifo_dis_inst_pid(0)
+  inst_alloc_pid(1) := Mux(inst_pcfifo(0), io.in.fromIU.pcfifo_dis_inst_pid(1), io.in.fromIU.pcfifo_dis_inst_pid(0))
+
+  when(inst_pcfifo(0) && inst_pcfifo(1)){
+    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(2)
+  }.elsewhen(inst_pcfifo(0) || inst_pcfifo(1)){
+    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(1)
+  }.otherwise{
+    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(0)
+  }
+
+  when(inst_pcfifo(0) && inst_pcfifo(1) && inst_pcfifo(2)){
+    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(3)
+  }.elsewhen(inst_pcfifo(0) && inst_pcfifo(1) || inst_pcfifo(0) && inst_pcfifo(2) || inst_pcfifo(1) && inst_pcfifo(2)){
+    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(2)
+  }.elsewhen(inst_pcfifo(0) || inst_pcfifo(1) || inst_pcfifo(2)){
+    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(1)
+  }.otherwise{
+    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(0)
+  }
+
+  //power optimization: mask pipedown index if dst not valid
+  val inst_pid = Wire(Vec(4, UInt(5.W)))
+  for(i <- 0 until 4){
+    inst_pid(i) := Mux(inst_pcfifo(i), inst_alloc_pid(i), 0.U)
+  }
+
+  //==========================================================
+  //              Issue Queue Dispatch Control
+  //==========================================================
+  for(j <- 0 until 7){
+    for(i <- 0 until 2){
+      io.out.iqCreateEn(j)(i).en := dis_info.iq_create_sel(j)(i).valid && !is_dis_stall
+      io.out.iqCreateEn(j)(i).dp_en := dis_info.iq_create_sel(j)(i).valid && !io.in.iq_cnt_info(j).full
+      io.out.iqCreateEn(j)(i).gateclk_en := dis_info.iq_create_sel(j)(i).valid
+      io.out.iqCreateEn(j)(i).sel := dis_info.iq_create_sel(j)(i).bits
+    }
+  }
+
+  //==========================================================
+  //               Create Launch Ready for IQ
+  //==========================================================
+  //----------------------------------------------------------
+  //               Issue Queue Create entry
+  //----------------------------------------------------------
+  val aiq0_create_entry = Wire(Vec(2, UInt(8.W)))
+  val aiq1_create_entry = Wire(Vec(2, UInt(8.W)))
+  val biq_create_entry  = Wire(Vec(2, UInt(12.W)))
+  val lsiq_create_entry = Wire(Vec(2, UInt(12.W)))
+  val sdiq_create_entry = Wire(Vec(2, UInt(12.W)))
+  val viq0_create_entry = Wire(Vec(2, UInt(8.W)))
+  val viq1_create_entry = Wire(Vec(2, UInt(8.W)))
+
+  for(i <- 0 until 2){
+    aiq0_create_entry(i) := Mux(io.out.iqCreateEn(0)(i).dp_en, io.in.iq_create_entry.aiq0_aiq(i), 0.U)
+    aiq1_create_entry(i) := Mux(io.out.iqCreateEn(1)(i).dp_en, io.in.iq_create_entry.aiq1_aiq(i), 0.U)
+    biq_create_entry(i)  := Mux(io.out.iqCreateEn(2)(i).dp_en, io.in.iq_create_entry.biq_aiq(i), 0.U)
+    lsiq_create_entry(i) := Mux(io.out.iqCreateEn(3)(i).dp_en, io.in.iq_create_entry.lsiq_aiq(i), 0.U)
+    sdiq_create_entry(i) := Mux(io.out.iqCreateEn(4)(i).dp_en, io.in.iq_create_entry.sdiq_aiq(i), 0.U)
+    viq0_create_entry(i) := Mux(io.out.iqCreateEn(5)(i).dp_en, io.in.iq_create_entry.viq0_viq(i), 0.U)
+    viq1_create_entry(i) := Mux(io.out.iqCreateEn(6)(i).dp_en, io.in.iq_create_entry.viq1_viq(i), 0.U)
+  }
+
+  //----------------------------------------------------------
+  //         Dispatch Inst Create Launch Ready
+  //----------------------------------------------------------
+  val iq_inst_create_src_match = Wire(Vec(3, Vec(7, Vec(2, new ir_srcMatch))))
+  for(j <- 0 until 7){
+    for(i <- 0 until 2){
+      //inst0
+      iq_inst_create_src_match(0)(j)(i) := MuxLookup(dis_info.iq_create_sel(j)(i).bits, 0.U.asTypeOf(new ir_srcMatch), Seq(
+        0.U -> 0.U.asTypeOf(new ir_srcMatch),
+        1.U -> inst_src_match(0),
+        2.U -> inst_src_match(1),
+        3.U -> inst_src_match(2)
+      ))
+      //inst1
+      iq_inst_create_src_match(1)(j)(i) := MuxLookup(dis_info.iq_create_sel(j)(i).bits, 0.U.asTypeOf(new ir_srcMatch), Seq(
+        0.U -> 0.U.asTypeOf(new ir_srcMatch),
+        1.U -> 0.U.asTypeOf(new ir_srcMatch),
+        2.U -> inst_src_match(3),
+        3.U -> inst_src_match(4)
+      ))
+      iq_inst_create_src_match(2)(j)(i) := MuxLookup(dis_info.iq_create_sel(j)(i).bits, 0.U.asTypeOf(new ir_srcMatch), Seq(
+        0.U -> 0.U.asTypeOf(new ir_srcMatch),
+        1.U -> 0.U.asTypeOf(new ir_srcMatch),
+        2.U -> 0.U.asTypeOf(new ir_srcMatch),
+        3.U -> inst_src_match(5)
+      ))
+    }
+  }
+
+  val inst_lch_rdy_aiq0 = WireInit(VecInit(Seq.fill(4)(VecInit(Seq.fill(8)(0.U(3.W))))))
+  val inst_lch_rdy_aiq1 = WireInit(VecInit(Seq.fill(4)(VecInit(Seq.fill(8)(0.U(3.W))))))
+  val inst_lch_rdy_viq0 = WireInit(VecInit(Seq.fill(4)(VecInit(Seq.fill(8)(false.B)))))
+  val inst_lch_rdy_viq1 = WireInit(VecInit(Seq.fill(4)(VecInit(Seq.fill(8)(false.B)))))
+  for(i <- 0 until 3){//inst
+    for(j <- 0 until 8){//iq entry sel
+      for(k <- 0 until 2){//create sel
+        when(aiq0_create_entry(k)(j)){
+          inst_lch_rdy_aiq0(i)(j) := Cat(iq_inst_create_src_match(i)(0)(k).src2, iq_inst_create_src_match(i)(0)(k).src1, iq_inst_create_src_match(i)(0)(k).src0)
+        }
+        when(aiq1_create_entry(k)(j)){
+          inst_lch_rdy_aiq1(i)(j) := Cat(iq_inst_create_src_match(i)(1)(k).src2, iq_inst_create_src_match(i)(1)(k).src1, iq_inst_create_src_match(i)(1)(k).src0)
+        }
+        when(viq0_create_entry(k)(j)){
+          inst_lch_rdy_viq0(i)(j) := iq_inst_create_src_match(i)(5)(k).srcv2
+        }
+        when(viq1_create_entry(k)(j)){
+          inst_lch_rdy_viq1(i)(j) := iq_inst_create_src_match(i)(6)(k).srcv2
+        }
+      }
+    }
+  }
+
+  val dp_sdiq_create_sel = Wire(Vec(2, Bool()))
+
+  val inst_lch_rdy_biq = WireInit(VecInit(Seq.fill(4)(VecInit(Seq.fill(12)(0.U(2.W))))))
+  val inst_lch_rdy_lsiq = WireInit(VecInit(Seq.fill(4)(VecInit(Seq.fill(12)(0.U(2.W))))))
+  val inst_lch_rdy_sdiq = WireInit(VecInit(Seq.fill(4)(VecInit(Seq.fill(12)(false.B)))))
+  for(i <- 0 until 3){ //inst
+    for (j <- 0 until 12){ //iq entry sel
+      for (k <- 0 until 2){ //create sel
+        when(biq_create_entry(k)(j)){
+          inst_lch_rdy_biq(i)(j) := Cat(iq_inst_create_src_match(i)(2)(k).src1, iq_inst_create_src_match(i)(2)(k).src0)
+        }
+        when(lsiq_create_entry(k)(j)){
+          inst_lch_rdy_lsiq(i)(j) := Cat(iq_inst_create_src_match(i)(3)(k).src1, iq_inst_create_src_match(i)(3)(k).src0)
+        }
+      }
+      //sdiq
+      when(sdiq_create_entry(0)(j)){
+        inst_lch_rdy_sdiq(i)(j) := Mux(dp_sdiq_create_sel(0), iq_inst_create_src_match(i)(4)(0).src1, iq_inst_create_src_match(i)(4)(0).src2)
+      }
+      when(sdiq_create_entry(1)(j) && dis_info.iq_create_sel(4)(1).bits === 3.U){
+        inst_lch_rdy_sdiq(i)(j) := Mux(dp_sdiq_create_sel(1), iq_inst_create_src_match(i)(4)(1).src1, iq_inst_create_src_match(i)(4)(1).src2)
+      }.elsewhen(sdiq_create_entry(1)(j) && dis_info.iq_create_sel(4)(1).bits =/= 3.U){
+        inst_lch_rdy_sdiq(i)(j) := Mux(dp_sdiq_create_sel(0), iq_inst_create_src_match(i)(4)(1).src1, iq_inst_create_src_match(i)(4)(1).src2)
+      }
+    }
+  }
+
+  //----------------------------------------------------------
+  //            Dispatch Inst3 Create Launch Ready
+  //----------------------------------------------------------
+  //inst3 is always zero
 
 
+  //==========================================================
+  //               Create Data for Issue Queue
+  //==========================================================
+  //----------------------------------------------------------
+  //                  Create Data for AIQ0
+  //----------------------------------------------------------
+  val aiq0_create_data         = Wire(Vec(2, new ISData))
+  val aiq0_create_iid          = Wire(Vec(2, UInt(7.W)))
+  val aiq0_create_pid          = Wire(Vec(2, UInt(5.W)))
+  val aiq0_create_lch_rdy_aiq0 = Wire(Vec(2, Vec(8, UInt(3.W))))
+  val aiq0_create_lch_rdy_aiq1 = Wire(Vec(2, Vec(8, UInt(3.W))))
+  val aiq0_create_lch_rdy_biq  = Wire(Vec(2, Vec(12, UInt(2.W))))
+  val aiq0_create_lch_rdy_lsiq = Wire(Vec(2, Vec(12, UInt(2.W))))
+  val aiq0_create_lch_rdy_sdiq = Wire(Vec(2, Vec(12, Bool())))
+
+  for(i <- 0 until 2){
+    when(dis_info.iq_create_sel(0)(i).bits === 0.U){
+      aiq0_create_data(i) := inst_read_data(0)
+      aiq0_create_iid(i) := inst_iid(0)
+      aiq0_create_pid(i) := inst_pid(0)
+      aiq0_create_lch_rdy_aiq0(i) := inst_lch_rdy_aiq0(0)
+      aiq0_create_lch_rdy_aiq1(i) := inst_lch_rdy_aiq1(0)
+      aiq0_create_lch_rdy_biq(i)  := inst_lch_rdy_biq(0)
+      aiq0_create_lch_rdy_lsiq(i) := inst_lch_rdy_lsiq(0)
+      aiq0_create_lch_rdy_sdiq(i) := inst_lch_rdy_sdiq(0)
+    }.elsewhen(dis_info.iq_create_sel(0)(i).bits === 1.U){
+      aiq0_create_data(i) := inst_read_data(1)
+      aiq0_create_iid(i) := inst_iid(1)
+      aiq0_create_pid(i) := inst_pid(1)
+      aiq0_create_lch_rdy_aiq0(i) := inst_lch_rdy_aiq0(1)
+      aiq0_create_lch_rdy_aiq1(i) := inst_lch_rdy_aiq1(1)
+      aiq0_create_lch_rdy_biq(i)  := inst_lch_rdy_biq(1)
+      aiq0_create_lch_rdy_lsiq(i) := inst_lch_rdy_lsiq(1)
+      aiq0_create_lch_rdy_sdiq(i) := inst_lch_rdy_sdiq(1)
+    }.elsewhen(dis_info.iq_create_sel(0)(i).bits === 2.U){
+      aiq0_create_data(i) := inst_read_data(2)
+      aiq0_create_iid(i) := inst_iid(2)
+      aiq0_create_pid(i) := inst_pid(2)
+      aiq0_create_lch_rdy_aiq0(i) := inst_lch_rdy_aiq0(2)
+      aiq0_create_lch_rdy_aiq1(i) := inst_lch_rdy_aiq1(2)
+      aiq0_create_lch_rdy_biq(i)  := inst_lch_rdy_biq(2)
+      aiq0_create_lch_rdy_lsiq(i) := inst_lch_rdy_lsiq(2)
+      aiq0_create_lch_rdy_sdiq(i) := inst_lch_rdy_sdiq(2)
+    }.elsewhen(dis_info.iq_create_sel(0)(i).bits === 3.U){
+      aiq0_create_data(i) := inst_read_data(3)
+      aiq0_create_iid(i) := inst_iid(3)
+      aiq0_create_pid(i) := inst_pid(3)
+      aiq0_create_lch_rdy_aiq0(i) := inst_lch_rdy_aiq0(3)
+      aiq0_create_lch_rdy_aiq1(i) := inst_lch_rdy_aiq1(3)
+      aiq0_create_lch_rdy_biq(i)  := inst_lch_rdy_biq(3)
+      aiq0_create_lch_rdy_lsiq(i) := inst_lch_rdy_lsiq(3)
+      aiq0_create_lch_rdy_sdiq(i) := inst_lch_rdy_sdiq(3)
+    }.otherwise{
+      aiq0_create_data(i) := 0.U.asTypeOf(new ISData)
+      aiq0_create_iid(i) := 0.U
+      aiq0_create_pid(i) := 0.U
+      aiq0_create_lch_rdy_aiq0(i) := 0.U.asTypeOf(Vec(8, UInt(3.W)))
+      aiq0_create_lch_rdy_aiq1(i) := 0.U.asTypeOf(Vec(8, UInt(3.W)))
+      aiq0_create_lch_rdy_biq(i)  := 0.U.asTypeOf(Vec(12, UInt(2.W)))
+      aiq0_create_lch_rdy_lsiq(i) := 0.U.asTypeOf(Vec(12, UInt(2.W)))
+      aiq0_create_lch_rdy_sdiq(i) := 0.U.asTypeOf(Vec(12, Bool()))
+    }
+  }
+
+  //----------------------------------------------------------
+  //                Reorganize for AIQ0 create
+  //----------------------------------------------------------
+  for(i <- 0 until 2){
+    io.out.toAiq0.create_data(i).VL           := aiq0_create_data(i).VL
+    io.out.toAiq0.create_data(i).LCH_PREG     := aiq0_create_data(i).LCH_PREG
+    io.out.toAiq0.create_data(i).SPECIAL      := aiq0_create_data(i).SPECIAL
+    io.out.toAiq0.create_data(i).VSEW         := aiq0_create_data(i).VSEW
+    io.out.toAiq0.create_data(i).VLMUL        := aiq0_create_data(i).VLMUL
+    io.out.toAiq0.create_data(i).LCH_RDY_SDIQ := aiq0_create_lch_rdy_sdiq(i)
+    io.out.toAiq0.create_data(i).LCH_RDY_LSIQ := aiq0_create_lch_rdy_lsiq(i)
+    io.out.toAiq0.create_data(i).LCH_RDY_BIQ  := aiq0_create_lch_rdy_biq(i)
+    io.out.toAiq0.create_data(i).LCH_RDY_AIQ1 := aiq0_create_lch_rdy_aiq1(i)
+    io.out.toAiq0.create_data(i).LCH_RDY_AIQ0 := aiq0_create_lch_rdy_aiq0(i)
+    io.out.toAiq0.create_data(i).ALU_SHORT    := aiq0_create_data(i).ALU_SHORT
+    io.out.toAiq0.create_data(i).PID          := aiq0_create_pid(i)
+    io.out.toAiq0.create_data(i).PCFIFO       := aiq0_create_data(i).PCFIFO
+    io.out.toAiq0.create_data(i).MTVR         := aiq0_create_data(i).MTVR
+    io.out.toAiq0.create_data(i).DIV          := aiq0_create_data(i).DIV
+    io.out.toAiq0.create_data(i).HIGH_HW_EXPT := aiq0_create_data(i).EXPT(6)
+    io.out.toAiq0.create_data(i).EXPT_VEC     := aiq0_create_data(i).EXPT(5,1)
+    io.out.toAiq0.create_data(i).EXPT_VLD     := aiq0_create_data(i).EXPT(0)
+
+    io.out.toAiq0.create_data(i).src_info(2).lsu_match := aiq0_create_data(i).src2_lsu_match
+    io.out.toAiq0.create_data(i).src_info(2).src_data  := aiq0_create_data(i).src2_data.asUInt(8,0).asTypeOf(new srcData9)
+    io.out.toAiq0.create_data(i).src_info(1).lsu_match := aiq0_create_data(i).src1_lsu_match
+    io.out.toAiq0.create_data(i).src_info(1).src_data  := aiq0_create_data(i).src1_data
+    io.out.toAiq0.create_data(i).src_info(0).lsu_match := aiq0_create_data(i).src0_lsu_match
+    io.out.toAiq0.create_data(i).src_info(0).src_data  := aiq0_create_data(i).src0_data
+
+    io.out.toAiq0.create_data(i).DST_VREG := aiq0_create_data(i).dst_vreg
+    io.out.toAiq0.create_data(i).DST_PREG := aiq0_create_data(i).dst_preg
+    io.out.toAiq0.create_data(i).DSTV_VLD := aiq0_create_data(i).dstv_vld
+    io.out.toAiq0.create_data(i).DST_VLD  := aiq0_create_data(i).dst_vld
+    io.out.toAiq0.create_data(i).src_vld  := aiq0_create_data(i).src_vld
+    io.out.toAiq0.create_data(i).IID      := aiq0_create_iid(i)
+    io.out.toAiq0.create_data(i).OPCODE   := aiq0_create_data(i).opcode
+  }
+
+  io.out.toAiq0.bypass_data.VL           := aiq0_create_data(0).VL
+  io.out.toAiq0.bypass_data.LCH_PREG     := aiq0_create_data(0).LCH_PREG
+  io.out.toAiq0.bypass_data.SPECIAL      := aiq0_create_data(0).SPECIAL
+  io.out.toAiq0.bypass_data.VSEW         := aiq0_create_data(0).VSEW
+  io.out.toAiq0.bypass_data.VLMUL        := aiq0_create_data(0).VLMUL
+  io.out.toAiq0.bypass_data.LCH_RDY_SDIQ := aiq0_create_lch_rdy_sdiq(0)
+  io.out.toAiq0.bypass_data.LCH_RDY_LSIQ := aiq0_create_lch_rdy_lsiq(0)
+  io.out.toAiq0.bypass_data.LCH_RDY_BIQ  := aiq0_create_lch_rdy_biq(0)
+  io.out.toAiq0.bypass_data.LCH_RDY_AIQ1 := aiq0_create_lch_rdy_aiq1(0)
+  io.out.toAiq0.bypass_data.LCH_RDY_AIQ0 := aiq0_create_lch_rdy_aiq0(0)
+  io.out.toAiq0.bypass_data.ALU_SHORT    := aiq0_create_data(0).ALU_SHORT
+  io.out.toAiq0.bypass_data.PID          := aiq0_create_pid(0)
+  io.out.toAiq0.bypass_data.PCFIFO       := aiq0_create_data(0).PCFIFO
+  io.out.toAiq0.bypass_data.MTVR         := aiq0_create_data(0).MTVR
+  io.out.toAiq0.bypass_data.DIV          := aiq0_create_data(0).DIV
+  io.out.toAiq0.bypass_data.HIGH_HW_EXPT := aiq0_create_data(0).EXPT(6)
+  io.out.toAiq0.bypass_data.EXPT_VEC     := aiq0_create_data(0).EXPT(5,1)
+  io.out.toAiq0.bypass_data.EXPT_VLD     := aiq0_create_data(0).EXPT(0)
+
+  io.out.toAiq0.bypass_data.src_info(2).lsu_match     := 0.U
+  io.out.toAiq0.bypass_data.src_info(2).src_data.preg := aiq0_create_data(0).src2_data.preg
+  io.out.toAiq0.bypass_data.src_info(2).src_data.wb   := aiq0_create_data(0).src2_data.wb
+  io.out.toAiq0.bypass_data.src_info(2).src_data.rdy  := 0.U
+  io.out.toAiq0.bypass_data.src_info(1).lsu_match     := 0.U
+  io.out.toAiq0.bypass_data.src_info(1).src_data.preg := aiq0_create_data(0).src1_data.preg
+  io.out.toAiq0.bypass_data.src_info(1).src_data.wb   := aiq0_create_data(0).src1_data.wb
+  io.out.toAiq0.bypass_data.src_info(1).src_data.rdy  := 0.U
+  io.out.toAiq0.bypass_data.src_info(0).lsu_match     := 0.U
+  io.out.toAiq0.bypass_data.src_info(0).src_data.preg := aiq0_create_data(0).src0_data.preg
+  io.out.toAiq0.bypass_data.src_info(0).src_data.wb   := aiq0_create_data(0).src0_data.wb
+  io.out.toAiq0.bypass_data.src_info(0).src_data.rdy  := 0.U
+
+  io.out.toAiq0.bypass_data.DST_VREG := aiq0_create_data(0).dst_vreg
+  io.out.toAiq0.bypass_data.DST_PREG := aiq0_create_data(0).dst_preg
+  io.out.toAiq0.bypass_data.DSTV_VLD := aiq0_create_data(0).dstv_vld
+  io.out.toAiq0.bypass_data.DST_VLD  := aiq0_create_data(0).dst_vld
+  io.out.toAiq0.bypass_data.src_vld  := aiq0_create_data(0).src_vld
+  io.out.toAiq0.bypass_data.IID      := aiq0_create_iid(0)
+  io.out.toAiq0.bypass_data.OPCODE   := aiq0_create_data(0).opcode
+
+  io.out.toAiq0.src_rdy_for_bypass(0) := aiq0_create_data(0).src0_bp_rdy(1)
+  io.out.toAiq0.src_rdy_for_bypass(1) := aiq0_create_data(0).src1_bp_rdy(1)
+  io.out.toAiq0.src_rdy_for_bypass(2) := aiq0_create_data(0).src2_bp_rdy(1)
+  io.out.toAiq0.create_div := aiq0_create_data(0).DIV
+
+  //----------------------------------------------------------
+  //                  Create Data for AIQ1
+  //----------------------------------------------------------
 }
