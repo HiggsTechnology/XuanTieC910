@@ -177,6 +177,7 @@ class ISStageOutput extends Bundle{
 
     val create0_src_rdy_for_bypass = Vec(2, Bool())
     val create0_srcvm_rdy_for_bypass = Bool()
+    val bar_inst_vld = Bool()
   }
   val sdiq_create_data = Vec(2, new SDIQData)
   val toViq0 = new Bundle{
@@ -273,9 +274,12 @@ class ISStage extends Module{
 
   //Reg
   val instVld = RegInit(VecInit(Seq.fill(4)(false.B)))
-  val dis_info = RegInit(0.U.asTypeOf(new IR_preDispatch))
+  val dis_info = RegInit(0.U.asTypeOf(Output(new IR_preDispatch)))
 
   val inst_src_match = RegInit(VecInit(Seq.fill(6)(0.U.asTypeOf(new ir_srcMatch))))
+
+  val iq_full  = RegInit(false.B)
+  val vmb_full = RegInit(false.B)
   //Wire
   val is_dis_stall = Wire(Bool())
   val is_dis_type_stall = Wire(Bool())
@@ -314,7 +318,7 @@ class ISStage extends Module{
   //            Implement of dispatch control register
   //----------------------------------------------------------
   when(io.in.fromRTU.flush_fe || io.in.fromIU.yyxxCancel){
-    dis_info := 0.U.asTypeOf(new IR_preDispatch)
+    dis_info := 0.U.asTypeOf(Output(new IR_preDispatch))
   }.elsewhen(!is_dis_stall){
     dis_info := io.in.pre_dispatch
   }
@@ -328,7 +332,7 @@ class ISStage extends Module{
     dis_info.pipedown2 &&                             //if pipedown2, is inst1/2 must be valid
       (instVld(3) && io.in.ir_type_stall_inst2_vld || //  if is inst3 valid, type stall if ir inst2 valid
         !instVld(3) && io.in.ir_type_stall_inst3_vld) //  if next cycle is inst3 not valid, type stall if ir inst3 valid
-
+  io.out.toIR.dis_type_stall := is_dis_type_stall
   //==========================================================
   //        Control signal for IS data path update
   //==========================================================
@@ -394,31 +398,31 @@ class ISStage extends Module{
     is_dp_inst(i).io.dp_xx_rf_pipe6_dst_vreg_dupx := io.in.fromRf.dst_vreg_dupx(0)
     is_dp_inst(i).io.dp_xx_rf_pipe7_dst_vreg_dupx := io.in.fromRf.dst_vreg_dupx(1)
     is_dp_inst(i).io.forever_cpuclk := clock.asBool
-    is_dp_inst(i).io.iu_idu_div_inst_vld := io.in.fromIU.div_inst_vld
-    is_dp_inst(i).io.iu_idu_div_preg_dupx := io.in.fromIU.div_preg_dupx
-    is_dp_inst(i).io.iu_idu_ex2_pipe0_wb_preg_dupx := io.in.fromIU.ex2_pipe0_wb_preg_dupx
-    is_dp_inst(i).io.iu_idu_ex2_pipe0_wb_preg_vld_dupx := io.in.fromIU.ex2_pipe0_wb_preg_vld_dupx
+    is_dp_inst(i).io.iu_idu_div_inst_vld                 := io.in.fromIU.div_inst_vld
+    is_dp_inst(i).io.iu_idu_div_preg_dupx                := io.in.fromIU.div_preg_dupx
+    is_dp_inst(i).io.iu_idu_ex2_pipe0_wb_preg_dupx       := io.in.fromIU.ex2_pipe0_wb_preg_dupx
+    is_dp_inst(i).io.iu_idu_ex2_pipe0_wb_preg_vld_dupx   := io.in.fromIU.ex2_pipe0_wb_preg_vld_dupx
     is_dp_inst(i).io.iu_idu_ex2_pipe1_mult_inst_vld_dupx := io.in.fromIU.ex2_pipe1_mult_inst_vld_dupx
-    is_dp_inst(i).io.iu_idu_ex2_pipe1_preg_dupx := io.in.fromIU.ex2_pipe1_preg_dupx
-    is_dp_inst(i).io.iu_idu_ex2_pipe1_wb_preg_dupx := io.in.fromIU.ex2_pipe1_wb_preg_dupx
-    is_dp_inst(i).io.iu_idu_ex2_pipe1_wb_preg_vld_dupx := io.in.fromIU.ex2_pipe1_wb_preg_vld_dupx
-    is_dp_inst(i).io.lsu_idu_ag_pipe3_load_inst_vld := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_ag_pipe3_preg_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_ag_pipe3_vload_inst_vld := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_ag_pipe3_vreg_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_dc_pipe3_load_fwd_inst_vld_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_dc_pipe3_load_inst_vld_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_dc_pipe3_preg_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_dc_pipe3_vload_fwd_inst_vld := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_dc_pipe3_vload_inst_vld_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_dc_pipe3_vreg_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_wb_pipe3_wb_preg_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_wb_pipe3_wb_preg_vld_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_wb_pipe3_wb_vreg_dupx := io.in.fromLSU
-    is_dp_inst(i).io.lsu_idu_wb_pipe3_wb_vreg_vld_dupx := io.in.fromLSU
+    is_dp_inst(i).io.iu_idu_ex2_pipe1_preg_dupx          := io.in.fromIU.ex2_pipe1_preg_dupx
+    is_dp_inst(i).io.iu_idu_ex2_pipe1_wb_preg_dupx       := io.in.fromIU.ex2_pipe1_wb_preg_dupx
+    is_dp_inst(i).io.iu_idu_ex2_pipe1_wb_preg_vld_dupx   := io.in.fromIU.ex2_pipe1_wb_preg_vld_dupx
+    is_dp_inst(i).io.lsu_idu_ag_pipe3_load_inst_vld          := io.in.fromLSU.ag_pipe3_load_inst_vld
+    is_dp_inst(i).io.lsu_idu_ag_pipe3_preg_dupx              := io.in.fromLSU.ag_pipe3_preg_dupx
+    is_dp_inst(i).io.lsu_idu_ag_pipe3_vload_inst_vld         := io.in.fromLSU.ag_pipe3_vload_inst_vld
+    is_dp_inst(i).io.lsu_idu_ag_pipe3_vreg_dupx              := io.in.fromLSU.ag_pipe3_vreg_dupx
+    is_dp_inst(i).io.lsu_idu_dc_pipe3_load_fwd_inst_vld_dupx := io.in.fromLSU.dc_pipe3_load_fwd_inst_vld_dupx
+    is_dp_inst(i).io.lsu_idu_dc_pipe3_load_inst_vld_dupx     := io.in.fromLSU.dc_pipe3_load_inst_vld_dupx
+    is_dp_inst(i).io.lsu_idu_dc_pipe3_preg_dupx              := io.in.fromLSU.dc_pipe3_preg_dupx
+    is_dp_inst(i).io.lsu_idu_dc_pipe3_vload_fwd_inst_vld     := io.in.fromLSU.dc_pipe3_vload_fwd_inst_vld
+    is_dp_inst(i).io.lsu_idu_dc_pipe3_vload_inst_vld_dupx    := io.in.fromLSU.dc_pipe3_vload_inst_vld_dupx
+    is_dp_inst(i).io.lsu_idu_dc_pipe3_vreg_dupx              := io.in.fromLSU.dc_pipe3_vreg_dupx
+    is_dp_inst(i).io.lsu_idu_wb_pipe3_wb_preg_dupx           := io.in.fromLSU.wb_pipe3_wb_preg_dupx
+    is_dp_inst(i).io.lsu_idu_wb_pipe3_wb_preg_vld_dupx       := io.in.fromLSU.wb_pipe3_wb_preg_vld_dupx
+    is_dp_inst(i).io.lsu_idu_wb_pipe3_wb_vreg_dupx           := io.in.fromLSU.wb_pipe3_wb_vreg_dupx
+    is_dp_inst(i).io.lsu_idu_wb_pipe3_wb_vreg_vld_dupx       := io.in.fromLSU.wb_pipe3_wb_vreg_vld_dupx
     is_dp_inst(i).io.pad_yy_icg_scan_en := io.in.fromPad.yyIcgScanEn
-    is_dp_inst(i).io.rtu_idu_flush_fe := io.in.fromRTU.flush_fe
-    is_dp_inst(i).io.rtu_idu_flush_is := io.in.fromRTU.flush_is
+    is_dp_inst(i).io.rtu_idu_flush_fe   := io.in.fromRTU.flush_fe
+    is_dp_inst(i).io.rtu_idu_flush_is   := io.in.fromRTU.flush_is
     is_dp_inst(i).io.vfpu_idu_ex1_pipe6_data_vld_dupx      := io.in.fromVFPU(0).ex1_data_vld_dupx
     is_dp_inst(i).io.vfpu_idu_ex1_pipe6_fmla_data_vld_dupx := io.in.fromVFPU(0).ex1_fmla_data_vld_dupx
     is_dp_inst(i).io.vfpu_idu_ex1_pipe6_mfvr_inst_vld_dupx := io.in.fromVFPU(0).ex1_mfvr_inst_vld_dupx
@@ -443,12 +447,12 @@ class ISStage extends Module{
     is_dp_inst(i).io.vfpu_idu_ex5_pipe6_wb_vreg_vld_dupx   := io.in.fromVFPU(0).ex5_wb_vreg_vld_dupx
     is_dp_inst(i).io.vfpu_idu_ex5_pipe7_wb_vreg_dupx       := io.in.fromVFPU(1).ex5_wb_vreg_dupx
     is_dp_inst(i).io.vfpu_idu_ex5_pipe7_wb_vreg_vld_dupx   := io.in.fromVFPU(1).ex5_wb_vreg_vld_dupx
-    is_dp_inst(i).io.x_create_data       := inst_create_data(i)
+    is_dp_inst(i).io.x_create_data       := inst_create_data(i).asUInt
     is_dp_inst(i).io.x_create_dp_en      := io.in.ir_pipedown.pipedown && !is_dis_stall
     is_dp_inst(i).io.x_create_gateclk_en := io.in.ir_pipedown.gateclk
     is_dp_inst(i).io.x_entry_vld         := instVld(i)
 
-    inst_read_data(i) := is_dp_inst(i).io.x_read_data
+    inst_read_data(i) := is_dp_inst(i).io.x_read_data.asTypeOf(new ISData)
   }
 
   //----------------------------------------------------------
@@ -467,15 +471,15 @@ class ISStage extends Module{
   val inst_create_src_match = WireInit(VecInit(Seq.fill(6)(0.U.asTypeOf(new ir_srcMatch))))
   when(io.out.toIR.inst_sel === "b001".U){
     inst_create_src_match(0) := inst_src_match(5)
-    inst_create_src_match(1) := 0.U(4.W)
-    inst_create_src_match(2) := 0.U(4.W)
-    inst_create_src_match(3) := 0.U(4.W)
-    inst_create_src_match(4) := 0.U(4.W)
+    inst_create_src_match(1) := 0.U.asTypeOf(new ir_srcMatch)
+    inst_create_src_match(2) := 0.U.asTypeOf(new ir_srcMatch)
+    inst_create_src_match(3) := 0.U.asTypeOf(new ir_srcMatch)
+    inst_create_src_match(4) := 0.U.asTypeOf(new ir_srcMatch)
     inst_create_src_match(5) := io.in.ir_pipedown.inst_src_match(0)
   }.elsewhen(io.out.toIR.inst_sel === "b010".U){
-    inst_create_src_match(0) := 0.U(4.W)
-    inst_create_src_match(1) := 0.U(4.W)
-    inst_create_src_match(2) := 0.U(4.W)
+    inst_create_src_match(0) := 0.U.asTypeOf(new ir_srcMatch)
+    inst_create_src_match(1) := 0.U.asTypeOf(new ir_srcMatch)
+    inst_create_src_match(2) := 0.U.asTypeOf(new ir_srcMatch)
     inst_create_src_match(3) := io.in.ir_pipedown.inst_src_match(0)
     inst_create_src_match(4) := io.in.ir_pipedown.inst_src_match(1)
     inst_create_src_match(5) := io.in.ir_pipedown.inst_src_match(3)
@@ -738,12 +742,12 @@ class ISStage extends Module{
 
   inst_iid(0) := io.in.fromRTU.rob_inst_idd(0)
   inst_iid(1) := Mux(io.in.pre_dispatch.pst_create_iid_sel(0)(0), io.in.fromRTU.rob_inst_idd(0), io.in.fromRTU.rob_inst_idd(1))
-  inst_iid(1) := MuxLookup(io.in.pre_dispatch.pst_create_iid_sel(1), 0.U(7.W), Seq(
+  inst_iid(2) := MuxLookup(io.in.pre_dispatch.pst_create_iid_sel(1), 0.U(7.W), Seq(
     "b001".U -> io.in.fromRTU.rob_inst_idd(0),
     "b010".U -> io.in.fromRTU.rob_inst_idd(1),
     "b100".U -> io.in.fromRTU.rob_inst_idd(2)
   ))
-  inst_iid(2) := MuxLookup(io.in.pre_dispatch.pst_create_iid_sel(2), 0.U(7.W), Seq(
+  inst_iid(3) := MuxLookup(io.in.pre_dispatch.pst_create_iid_sel(2), 0.U(7.W), Seq(
     "b001".U -> io.in.fromRTU.rob_inst_idd(1),
     "b010".U -> io.in.fromRTU.rob_inst_idd(2),
     "b100".U -> io.in.fromRTU.rob_inst_idd(3)
@@ -857,13 +861,13 @@ class ISStage extends Module{
   }
 
   when(inst_pcfifo(0) && inst_pcfifo(1) && inst_pcfifo(2)){
-    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(3)
+    inst_alloc_pid(3) := io.in.fromIU.pcfifo_dis_inst_pid(3)
   }.elsewhen(inst_pcfifo(0) && inst_pcfifo(1) || inst_pcfifo(0) && inst_pcfifo(2) || inst_pcfifo(1) && inst_pcfifo(2)){
-    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(2)
+    inst_alloc_pid(3) := io.in.fromIU.pcfifo_dis_inst_pid(2)
   }.elsewhen(inst_pcfifo(0) || inst_pcfifo(1) || inst_pcfifo(2)){
-    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(1)
+    inst_alloc_pid(3) := io.in.fromIU.pcfifo_dis_inst_pid(1)
   }.otherwise{
-    inst_alloc_pid(2) := io.in.fromIU.pcfifo_dis_inst_pid(0)
+    inst_alloc_pid(3) := io.in.fromIU.pcfifo_dis_inst_pid(0)
   }
 
   //power optimization: mask pipedown index if dst not valid
@@ -960,7 +964,7 @@ class ISStage extends Module{
     }
   }
 
-  val dp_sdiq_create_sel = Wire(Vec(2, Bool()))
+  val dp_sdiq_create_sti_sel = Wire(Vec(2, Bool()))
 
   val inst_lch_rdy_biq = WireInit(VecInit(Seq.fill(4)(VecInit(Seq.fill(12)(0.U(2.W))))))
   val inst_lch_rdy_lsiq = WireInit(VecInit(Seq.fill(4)(VecInit(Seq.fill(12)(0.U(2.W))))))
@@ -977,12 +981,12 @@ class ISStage extends Module{
       }
       //sdiq
       when(sdiq_create_entry(0)(j)){
-        inst_lch_rdy_sdiq(i)(j) := Mux(dp_sdiq_create_sel(0), iq_inst_create_src_match(i)(4)(0).src1, iq_inst_create_src_match(i)(4)(0).src2)
+        inst_lch_rdy_sdiq(i)(j) := Mux(dp_sdiq_create_sti_sel(0), iq_inst_create_src_match(i)(4)(0).src1, iq_inst_create_src_match(i)(4)(0).src2)
       }
       when(sdiq_create_entry(1)(j) && dis_info.iq_create_sel(4)(1).bits === 3.U){
-        inst_lch_rdy_sdiq(i)(j) := Mux(dp_sdiq_create_sel(1), iq_inst_create_src_match(i)(4)(1).src1, iq_inst_create_src_match(i)(4)(1).src2)
+        inst_lch_rdy_sdiq(i)(j) := Mux(dp_sdiq_create_sti_sel(1), iq_inst_create_src_match(i)(4)(1).src1, iq_inst_create_src_match(i)(4)(1).src2)
       }.elsewhen(sdiq_create_entry(1)(j) && dis_info.iq_create_sel(4)(1).bits =/= 3.U){
-        inst_lch_rdy_sdiq(i)(j) := Mux(dp_sdiq_create_sel(0), iq_inst_create_src_match(i)(4)(1).src1, iq_inst_create_src_match(i)(4)(1).src2)
+        inst_lch_rdy_sdiq(i)(j) := Mux(dp_sdiq_create_sti_sel(0), iq_inst_create_src_match(i)(4)(1).src1, iq_inst_create_src_match(i)(4)(1).src2)
       }
     }
   }
@@ -1323,7 +1327,7 @@ class ISStage extends Module{
     io.out.toBiq.create_data(i).src_info(0).lsu_match := biq_create_data(i).src0_lsu_match
     io.out.toBiq.create_data(i).src_info(0).src_data  := biq_create_data(i).src0_data
 
-    io.out.toBiq.create_data(i).src_vld  := biq_create_data(i).src_vld
+    io.out.toBiq.create_data(i).src_vld  := biq_create_data(i).src_vld.take(2)
     io.out.toBiq.create_data(i).IID      := biq_create_iid(i)
     io.out.toBiq.create_data(i).OPCODE   := biq_create_data(i).opcode
   }
@@ -1345,7 +1349,7 @@ class ISStage extends Module{
   io.out.toBiq.bypass_data.src_info(0).src_data.wb   := biq_create_data(0).src0_data.wb
   io.out.toBiq.bypass_data.src_info(0).src_data.rdy  := 0.U
 
-  io.out.toBiq.bypass_data.src_vld  := biq_create_data(0).src_vld
+  io.out.toBiq.bypass_data.src_vld  := biq_create_data(0).src_vld.take(2)
   io.out.toBiq.bypass_data.IID      := biq_create_iid(0)
   io.out.toBiq.bypass_data.OPCODE   := biq_create_data(0).opcode
 
@@ -1418,7 +1422,7 @@ class ISStage extends Module{
     io.out.toLsiq.create_data(i).SRCVM_LSU_MATCH := Mux(lsiq_create_data(i).srcv_vld(1), lsiq_create_data(i).srcv1_lsu_match, lsiq_create_data(i).srcvm_lsu_match)
     io.out.toLsiq.create_data(i).SRCVM_DATA      := Mux(lsiq_create_data(i).srcv_vld(1), lsiq_create_data(i).srcv1_data, lsiq_create_data(i).srcvm_data)
     io.out.toLsiq.create_data(i).src_info(1).lsu_match := Mux(lsiq_create_sti_sel(i), false.B, lsiq_create_data(i).src1_lsu_match)
-    io.out.toLsiq.create_data(i).src_info(1).src_data  := Mux(lsiq_create_sti_sel(i), "b0000000_1_1".U, lsiq_create_data(i).src1_data)
+    io.out.toLsiq.create_data(i).src_info(1).src_data  := Mux(lsiq_create_sti_sel(i), "b0000000_1_1".U.asTypeOf(new srcData9), lsiq_create_data(i).src1_data)
     io.out.toLsiq.create_data(i).src_info(0).lsu_match := lsiq_create_data(i).src0_lsu_match
     io.out.toLsiq.create_data(i).src_info(0).src_data  := lsiq_create_data(i).src0_data
 
@@ -1511,10 +1515,10 @@ class ISStage extends Module{
   //----------------------------------------------------------
   //                Reorganize for SDIQ create
   //----------------------------------------------------------
-  val sdiq_create_sti_sel = Wire(Vec(2, Bool()))
+  //val sdiq_create_sti_sel = Wire(Vec(2, Bool()))
   for(i <- 0 until 2){
-    sdiq_create_sti_sel(i) := !sdiq_create_data(i).STR
-    io.out.toAiq.sdiq_create_src_sel(i) := sdiq_create_sti_sel(i)
+    dp_sdiq_create_sti_sel(i) := !sdiq_create_data(i).STR
+    io.out.toAiq.sdiq_create_src_sel(i) := dp_sdiq_create_sti_sel(i)
 
     io.out.sdiq_create_data(i).LOAD            := sdiq_create_data(i).LOAD
     io.out.sdiq_create_data(i).STADDR1_IN_STQ  := 0.U
@@ -1523,10 +1527,10 @@ class ISStage extends Module{
     io.out.sdiq_create_data(i).UNALIGN         := 0.U
     io.out.sdiq_create_data(i).SRCV0_LSU_MATCH := sdiq_create_data(i).srcv2_lsu_match
     io.out.sdiq_create_data(i).SRCV0_DATA      := sdiq_create_data(i).srcv2_data.asUInt(8,0).asTypeOf(new srcData9)
-    io.out.sdiq_create_data(i).SRC0_LSU_MATCH  := Mux(sdiq_create_sti_sel(i), sdiq_create_data(i).src1_lsu_match, sdiq_create_data(i).src2_lsu_match)
-    io.out.sdiq_create_data(i).SRC0_DATA       := Mux(sdiq_create_sti_sel(i), sdiq_create_data(i).src1_data, sdiq_create_data(i).src2_data.asUInt(8,0).asTypeOf(new srcData9))
+    io.out.sdiq_create_data(i).SRC0_LSU_MATCH  := Mux(dp_sdiq_create_sti_sel(i), sdiq_create_data(i).src1_lsu_match, sdiq_create_data(i).src2_lsu_match)
+    io.out.sdiq_create_data(i).SRC0_DATA       := Mux(dp_sdiq_create_sti_sel(i), sdiq_create_data(i).src1_data, sdiq_create_data(i).src2_data.asUInt(8,0).asTypeOf(new srcData9))
     io.out.sdiq_create_data(i).SRCV0_VLD       := sdiq_create_data(i).srcv_vld(2)
-    io.out.sdiq_create_data(i).SRC0_VLD        := Mux(sdiq_create_sti_sel(i), sdiq_create_data(i).src_vld(1), sdiq_create_data(i).src_vld(2))
+    io.out.sdiq_create_data(i).SRC0_VLD        := Mux(dp_sdiq_create_sti_sel(i), sdiq_create_data(i).src_vld(1), sdiq_create_data(i).src_vld(2))
   }
 
   //----------------------------------------------------------
@@ -1619,7 +1623,7 @@ class ISStage extends Module{
   io.out.toViq0.bypass_data.VSEW         := viq0_create_data(0).VSEW
   io.out.toViq0.bypass_data.VLMUL        := viq0_create_data(0).VLMUL
   io.out.toViq0.bypass_data.VMUL         := viq0_create_data(0).VMUL
-  //io.out.toViq0.bypass_data.VMUL_UNSPLIT := viq0_create_data(i).VMUL_UNSPLIT
+  io.out.toViq0.bypass_data.VMUL_UNSPLIT := 0.U
   io.out.toViq0.bypass_data.VMLA_SHORT   := viq0_create_data(0).VMLA_SHORT
   io.out.toViq0.bypass_data.VDIV         := viq0_create_data(0).VDIV
   io.out.toViq0.bypass_data.LCH_RDY_VIQ1 := viq0_create_lch_rdy_viq1(0)
@@ -1756,10 +1760,10 @@ class ISStage extends Module{
   io.out.toViq1.bypass_data.VL           := viq1_create_data(0).VL
   io.out.toViq1.bypass_data.VSEW         := viq1_create_data(0).VSEW
   io.out.toViq1.bypass_data.VLMUL        := viq1_create_data(0).VLMUL
-  //io.out.toViq0.bypass_data.VMUL         := viq0_create_data(0).VMUL
+  io.out.toViq1.bypass_data.VMUL         := 0.U
   io.out.toViq1.bypass_data.VMUL_UNSPLIT := viq1_create_data(0).VMUL_UNSPLIT
   io.out.toViq1.bypass_data.VMLA_SHORT   := viq1_create_data(0).VMLA_SHORT
-  //io.out.toViq0.bypass_data.VDIV         := viq0_create_data(0).VDIV
+  io.out.toViq1.bypass_data.VDIV         := 0.U
   io.out.toViq1.bypass_data.LCH_RDY_VIQ1 := viq1_create_lch_rdy_viq1(0)
   io.out.toViq1.bypass_data.LCH_RDY_VIQ0 := viq1_create_lch_rdy_viq0(0)
   io.out.toViq1.bypass_data.VMLA_TYPE    := viq1_create_data(0).VMLA_TYPE
@@ -1840,6 +1844,99 @@ class ISStage extends Module{
   //==========================================================
   //               PID assign signal for PCFIFO
   //==========================================================
+  val pcfifo_inst_vld = Wire(Vec(4, Bool()))
+  for(i <- 0 until 4){
+    pcfifo_inst_vld(i) := dis_info.inst_vld(i) && !is_dis_stall && inst_pcfifo(i)
+  }
 
+  io.out.toIU.pcfifo_inst_vld := pcfifo_inst_vld.asUInt.orR && !is_dis_stall
+  io.out.toIU.pcfifo_inst_num := PopCount(pcfifo_inst_vld)
 
+  //==========================================================
+  //               Barrier inst valid signal
+  //==========================================================
+  //ignore stall signals and type stall
+  val bar_inst_vld = Wire(Vec(4, Bool()))
+  for(i <- 0 until 4){
+    bar_inst_vld(i) := instVld(i) && inst_read_data(i).BAR
+  }
+  io.out.toLsiq.bar_inst_vld := bar_inst_vld.asUInt.orR
+
+  //==========================================================
+  //               Issue Queue empty signal
+  //==========================================================
+  val iq_empty = Wire(Vec(8, Bool()))
+  for(i <- 0 until 8){
+    iq_empty(i) := io.in.iq_cnt_info(i).empty
+  }
+  io.out.toHad.iq_empty := iq_empty.asUInt.orR
+
+  //==========================================================
+  //                   Issue Stall signal
+  //==========================================================
+  val iq_full_updt_clk_en = Wire(Vec(8, Bool()))
+  for(i <- 0 until 8){
+    iq_full_updt_clk_en(i) := io.in.iq_cnt_info(i).full_updt_clk_en
+  }
+  val queue_full_clk_en = io.in.ir_pipedown.gateclk || instVld(0) || iq_full_updt_clk_en.asUInt.orR
+
+  //----------------------------------------------------------
+  //                Issue Queue Full Prepare
+  //----------------------------------------------------------
+  val dis_iq_create_en_updt = Wire(Vec(7, Vec(2, Bool())))
+  val iq_full_updt = Wire(Vec(7, Bool()))
+  for(i <- 0 until 7){
+    for(j <- 0 until 2){
+      when(!is_dis_stall){
+        dis_iq_create_en_updt(i)(j) := io.in.pre_dispatch.iq_create_sel(i)(j).valid
+      }.otherwise{
+        dis_iq_create_en_updt(i)(j) := dis_info.iq_create_sel(i)(j).valid
+      }
+    }
+    iq_full_updt(i) := dis_iq_create_en_updt(i)(0) && io.in.iq_cnt_info(i).full_updt ||
+                       dis_iq_create_en_updt(i)(1) && io.in.iq_cnt_info(i).left_1_updt
+  }
+
+  //----------------------------------------------------------
+  //                  LSU VMB Full Prepare
+  //----------------------------------------------------------
+  val dis_vmb_create_en_updt = Wire(Vec(2, Bool()))
+  for(i <- 0 until 2){
+    when(!is_dis_stall){
+      dis_vmb_create_en_updt(i) := io.in.pre_dispatch.iq_create_sel(7)(i).valid
+    }.otherwise{
+      dis_vmb_create_en_updt(i) := dis_info.iq_create_sel(7)(i).valid
+    }
+  }
+  val vmb_full_updt = io.in.iq_cnt_info(7).full_updt && dis_vmb_create_en_updt.asUInt.orR ||
+                      io.in.iq_cnt_info(7).full_updt && dis_vmb_create_en_updt.asUInt.andR
+
+  //----------------------------------------------------------
+  //                      Queue Full
+  //----------------------------------------------------------
+  when(io.in.fromRTU.flush_fe || io.in.fromRTU.flush_is || io.in.fromRTU.yy_xx_flush){
+    iq_full  := false.B
+    vmb_full := false.B
+  }.otherwise{
+    iq_full  := iq_full_updt.asUInt.orR
+    vmb_full := vmb_full_updt
+  }
+
+  io.out.toTop.iq_full  := iq_full
+  io.out.toTop.vmb_full := vmb_full
+
+  //==========================================================
+  //                  Dispatch Stall signal
+  //==========================================================
+  //dispatch stall is when there is valid dispatch instruction and:
+  //1.RTU rob full (less than max create inst num entry valid)
+  val rob_full = dis_info.inst_vld(0) && io.in.fromRTU.rob_full
+  //2.Issue Queue full
+  is_dis_stall := rob_full || iq_full || vmb_full
+
+  //==========================================================
+  //                    IS stall signals
+  //==========================================================
+  //if cannot dispatch all is pipeline inst, stall ir stage
+  io.out.toIR.stall := is_dis_stall || is_dis_type_stall
 }
